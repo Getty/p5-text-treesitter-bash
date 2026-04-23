@@ -1,0 +1,6 @@
+{{$NEXT}}
+
+0.001     2026-04-24 00:00:00Z
+  - Initial release
+  - Vendor tree-sitter-bash 0.20.5 grammar sources
+  - Add Bash command extraction and security findings
