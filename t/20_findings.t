@@ -20,4 +20,20 @@ is finding_types('echo safe'),
   [],
   'plain echo has no findings';
 
+is finding_types('git status && git add . && git commit -m "message"'),
+  [],
+  'git checkpoint workflow has no security findings';
+
+is finding_types('git checkout HEAD -- .'),
+  [],
+  'git revert has no security findings';
+
+is finding_types('npm install && npm run build'),
+  [],
+  'npm chain has no security findings';
+
+is finding_types('pytest && coverage report'),
+  [],
+  'pytest chain has no security findings';
+
 done_testing;
