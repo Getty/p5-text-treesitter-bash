@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::UnquotedExpansion;
 # ABSTRACT: Detect unquoted variable expansions that could split
-
+our $VERSION = '0.002';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

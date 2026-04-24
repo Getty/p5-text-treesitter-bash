@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::EnvDangerousVars;
 # ABSTRACT: Detect dangerous environment variables in commands
-
+our $VERSION = '0.002';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

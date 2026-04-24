@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::MissingAbsolutePath;
 # ABSTRACT: Detect commands without absolute paths
-
+our $VERSION = '0.002';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

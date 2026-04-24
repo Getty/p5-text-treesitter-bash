@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash;
 # ABSTRACT: Parse Bash with Text::Treesitter and extract executable commands
-
+our $VERSION = '0.002';
 use strict;
 use warnings;
 use Carp qw( croak );

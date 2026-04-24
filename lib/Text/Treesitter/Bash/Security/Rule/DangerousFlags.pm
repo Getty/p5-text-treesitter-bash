@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::DangerousFlags;
 # ABSTRACT: Detect dangerous flag combinations in commands
-
+our $VERSION = '0.002';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';
