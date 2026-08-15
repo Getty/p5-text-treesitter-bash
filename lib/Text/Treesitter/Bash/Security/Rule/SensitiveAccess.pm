@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::SensitiveAccess;
 # ABSTRACT: Detect access to sensitive files and directories
-our $VERSION = '0.003';
+our $VERSION = '0.004';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';
@@ -69,6 +69,28 @@ my @SENSITIVE_PATTERNS = (
   [ qr{/dev/},                 'low',    'Device file access' ],
 );
 
+# Whitelist of `/dev/` paths that are common and benign. Strings are
+# matched verbatim against argv entries. Anything not in the whitelist
+# still triggers the (low) severity finding.
+my %DEV_WHITELIST = map { $_ => 1 } qw(
+  /dev/null
+  /dev/zero
+  /dev/full
+  /dev/tty
+  /dev/stdin
+  /dev/stdout
+  /dev/stderr
+  /dev/random
+  /dev/urandom
+  /dev/fd
+  /dev/fd/0
+  /dev/fd/1
+  /dev/fd/2
+  /dev/pts
+  /dev/pts/0
+  /dev/shm
+);
+
 sub check {
   my ( $class, $command ) = @_;
 
@@ -79,6 +101,8 @@ sub check {
       my ( $pattern, $severity, $message ) = @$tuple;
 
       if ( $arg =~ $pattern ) {
+        # Skip the (low) /dev/ finding for entries in the whitelist.
+        return if $severity eq 'low' && $DEV_WHITELIST{$arg};
         return {
           rule     => 'SensitiveAccess',
           severity => $severity,

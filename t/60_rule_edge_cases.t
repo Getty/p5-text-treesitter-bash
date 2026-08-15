@@ -39,7 +39,12 @@ ok( has_rule('cat /etc/passwd',         'SensitiveAccess'), 'passwd file' );
 ok( has_rule('cat /etc/group',          'SensitiveAccess'), 'group file' );
 ok( has_rule('cat /proc/self/status',   'SensitiveAccess'), 'proc/self' );
 ok( has_rule('cat /sys/fs/',            'SensitiveAccess'), 'sys/fs' );
-ok( has_rule('cat /dev/null',           'SensitiveAccess'), 'dev access' );
+ok(!has_rule('cat /dev/null',           'SensitiveAccess'), '/dev/null is whitelisted' );
+ok(!has_rule('cat /dev/zero',           'SensitiveAccess'), '/dev/zero is whitelisted' );
+ok(!has_rule('cat /dev/stdin',          'SensitiveAccess'), '/dev/stdin is whitelisted' );
+ok( has_rule('cat /dev/sda',            'SensitiveAccess'), 'non-whitelisted /dev/ still triggers' );
+ok( has_rule('cat /dev/disk0',          'SensitiveAccess'), '/dev/disk0 (macOS) triggers' );
+ok( has_rule('cat /dev/loop0',          'SensitiveAccess'), '/dev/loop0 triggers' );
 ok(!has_rule('ls /home/user',           'SensitiveAccess'), 'home dir does not trigger' );
 
 # --- EnvDangerousVars: coverage -----------------------------------------

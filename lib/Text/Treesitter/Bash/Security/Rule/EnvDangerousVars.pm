@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::EnvDangerousVars;
 # ABSTRACT: Detect dangerous environment variables in commands
-our $VERSION = '0.003';
+our $VERSION = '0.004';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';
@@ -35,14 +35,34 @@ L<Text::Treesitter::Bash::Security::Rule>.
 =cut
 
 my @DANGEROUS_VARS = (
-  [ 'LD_PRELOAD',   'high',   'LD_PRELOAD can inject shared libraries' ],
-  [ 'LD_AUDIT',     'high',   'LD_AUDIT can inject shared libraries' ],
+  # high — direct code execution / library hijacking
+  [ 'LD_PRELOAD',            'high', 'LD_PRELOAD can inject shared libraries' ],
+  [ 'LD_AUDIT',              'high', 'LD_AUDIT can inject shared libraries' ],
   [ 'DYLD_INSERT_LIBRARIES', 'high', 'macOS DYLD injection' ],
   [ 'DYLD_LIBRARY_PATH',     'high', 'macOS DYLD library path hijacking' ],
-  [ 'BASH_ENV',     'high',   'BASH_ENV executes code in non-interactive bash' ],
-  [ 'ENV',          'high',   'ENV executes code in interactive bash' ],
-  [ 'CDPATH',       'low',    'CDPATH can cause unexpected directory changes' ],
-  [ 'GIT_DIR',      'low',    'GIT_DIR can redirect git operations' ],
+  [ 'BASH_ENV',              'high', 'BASH_ENV executes code in non-interactive bash' ],
+  [ 'ENV',                   'high', 'ENV executes code in interactive bash' ],
+  [ 'SHELLOPTS',             'high', 'SHELLOPTS can change shell error behaviour' ],
+  [ 'BASH_FUNC_',            'high', 'BASH_FUNC_* exports shell functions into other bash' ],
+  [ 'IFS',                   'high', 'IFS manipulation can change word-splitting' ],
+  [ 'PROMPT_COMMAND',        'high', 'PROMPT_COMMAND runs before each prompt' ],
+  [ 'PS4',                   'high', 'PS4 with set -x triggers command expansion' ],
+  # high — interpreter preload / module injection
+  [ 'PYTHONPATH',            'high', 'PYTHONPATH can inject Python modules' ],
+  [ 'PYTHONSTARTUP',         'high', 'PYTHONSTARTUP executes Python on interactive start' ],
+  [ 'NODE_PATH',             'high', 'NODE_PATH can hijack Node module resolution' ],
+  [ 'NODE_OPTIONS',          'high', 'NODE_OPTIONS can inject Node CLI flags' ],
+  [ 'PERL5LIB',              'high', 'PERL5LIB can inject Perl modules' ],
+  [ 'PERL5OPT',              'high', 'PERL5OPT can inject Perl CLI flags' ],
+  [ 'RUBYLIB',               'high', 'RUBYLIB can inject Ruby libraries' ],
+  [ 'RUBYOPT',               'high', 'RUBYOPT can inject Ruby CLI flags' ],
+  [ 'CLASSPATH',             'high', 'CLASSPATH can inject Java classes' ],
+  [ 'LD_LIBRARY_PATH',       'high', 'LD_LIBRARY_PATH overrides library search' ],
+  # low — directory / config redirection
+  [ 'CDPATH',                'low',  'CDPATH can cause unexpected directory changes' ],
+  [ 'GIT_DIR',               'low',  'GIT_DIR can redirect git operations' ],
+  [ 'GIT_WORK_TREE',         'low',  'GIT_WORK_TREE can redirect git operations' ],
+  [ 'GIT_INDEX_FILE',        'low',  'GIT_INDEX_FILE can redirect git index' ],
 );
 
 sub check {
