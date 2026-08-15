@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::EnvDangerousVars;
 # ABSTRACT: Detect dangerous environment variables in commands
-our $VERSION = '0.004';
+our $VERSION = '0.005';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';
@@ -73,7 +73,31 @@ sub check {
   for my $tuple (@DANGEROUS_VARS) {
     my ( $var, $severity, $message ) = @$tuple;
 
-    if ( $source =~ m{\b(?:export\s+)?\Q$var\E\b}s ) {
+    # Build the end-of-name anchor. For a normal variable, require
+    # either a word-boundary, the `%%` suffix (BASH_FUNC_<name>%%),
+    # an `=`, or end-of-string after the name. The naive `\b...\b`
+    # fails for prefixes that end in a word character (e.g.
+    # `BASH_FUNC_`), because `_` is a word char and there is no
+    # boundary between `_` and the function name.
+    my $rx;
+    if ( $var =~ /_\z/ ) {
+      # Prefix-match (e.g. BASH_FUNC_): the real variable is the
+      # prefix + an identifier. Require the prefix to be followed by
+      # an identifier character, then end-of-name (boundary, `%%`,
+      # `=`, end-of-string).
+      $rx = qr{
+        \b (?:export\s+)? \Q$var\E [a-zA-Z0-9_]+
+        (?: \b | %% | = | \z )
+      }xs;
+    }
+    else {
+      $rx = qr{
+        \b (?:export\s+)? \Q$var\E
+        (?: \b | %% | = | \z )
+      }xs;
+    }
+
+    if ( $source =~ $rx ) {
       return {
         rule     => 'EnvDangerousVars',
         severity => $severity,

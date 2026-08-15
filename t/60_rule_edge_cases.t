@@ -80,6 +80,26 @@ ok( has_rule('GIT_DIR=/x git status',               'EnvDangerousVars'), 'GIT_DI
 ok( has_rule('export LD_PRELOAD=/x.so ls',          'EnvDangerousVars'), 'exported LD_PRELOAD' );
 ok(!has_rule('echo PATH=$PATH',                     'EnvDangerousVars'), 'PATH is not dangerous' );
 
+# --- EnvDangerousVars: extended coverage (2.5.13) ----------------------
+
+ok( has_rule('SHELLOPTS=allexec bash',              'EnvDangerousVars'), 'SHELLOPTS' );
+ok( has_rule(q{BASH_FUNC_foo bash},                'EnvDangerousVars'), 'BASH_FUNC_ prefix triggers' );
+ok( has_rule('IFS=/ cat /etc/passwd',               'EnvDangerousVars'), 'IFS assignment' );
+ok( has_rule('PROMPT_COMMAND=id bash',              'EnvDangerousVars'), 'PROMPT_COMMAND' );
+ok( has_rule('PS4="\$(reboot)" bash',               'EnvDangerousVars'), 'PS4 with expansion' );
+ok( has_rule('PYTHONPATH=/evil python',             'EnvDangerousVars'), 'PYTHONPATH' );
+ok( has_rule('PYTHONSTARTUP=/evil/x.py python',     'EnvDangerousVars'), 'PYTHONSTARTUP' );
+ok( has_rule('NODE_PATH=/evil node x.js',           'EnvDangerousVars'), 'NODE_PATH' );
+ok( has_rule('NODE_OPTIONS="--require evil" node',  'EnvDangerousVars'), 'NODE_OPTIONS' );
+ok( has_rule('PERL5LIB=/evil perl -e 1',            'EnvDangerousVars'), 'PERL5LIB' );
+ok( has_rule('PERL5OPT="-Mevil" perl -e 1',         'EnvDangerousVars'), 'PERL5OPT' );
+ok( has_rule('RUBYLIB=/evil ruby -e 1',             'EnvDangerousVars'), 'RUBYLIB' );
+ok( has_rule('RUBYOPT="-revenv" ruby -e 1',         'EnvDangerousVars'), 'RUBYOPT' );
+ok( has_rule('CLASSPATH=/evil java Foo',            'EnvDangerousVars'), 'CLASSPATH' );
+ok( has_rule('LD_LIBRARY_PATH=/evil ls',            'EnvDangerousVars'), 'LD_LIBRARY_PATH' );
+ok( has_rule('GIT_WORK_TREE=/x git status',         'EnvDangerousVars'), 'GIT_WORK_TREE' );
+ok( has_rule('GIT_INDEX_FILE=/x/foo git status',    'EnvDangerousVars'), 'GIT_INDEX_FILE' );
+
 # --- UnquotedExpansion: edge cases -------------------------------------
 
 ok( has_rule('cat $HOME/.ssh/id_rsa',           'UnquotedExpansion'), 'unquoted $VAR before path char' );
