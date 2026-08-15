@@ -153,6 +153,14 @@ C<truncate -s 0> of system paths, C<shred>, mount/loop/crypto manipulation.
 
 Detects C<IFS=> assignments and C<$IFS>-bound expansions.
 
+=item L<Text::Treesitter::Bash::Security::Rule::InsecureDownload>
+
+Detects C<curl>/C<wget>/C<fetch> invocations with TLS verification
+disabled (C<-k>, C<--insecure>, C<--no-check-certificate>,
+C<--no-cert-check>) — C<high> — or with plaintext C<http://> URLs —
+C<medium>. A second-pass scan of the full source catches URLs that
+argv splitting obscured (e.g. inside a C<--data-urlencode> value).
+
 =back
 
 =head1 WRITING YOUR OWN RULE

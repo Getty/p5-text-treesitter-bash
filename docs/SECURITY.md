@@ -36,6 +36,7 @@ What the checker is **not**:
 | `ReverseShellSink`     | high / medium | `nc -e`, `ncat -e`, `socat exec:`, `bash -i` + `/dev/tcp`, `ssh ProxyCommand`, `mkfifo` |
 | `DangerousFilesystem`  | high / medium | `dd of=/dev/sdX`, `mkfs*`, `fdisk`, `parted`, `: > /etc/...`, `truncate -s 0`, `shred`, mount/loop/crypto |
 | `IFSManipulation`      | high / medium | `IFS=` overrides, `$IFS`-bound expansions |
+| `InsecureDownload`     | high / medium | `curl -k`, `wget --no-check-certificate`, `--no-cert-check`; plaintext `http://` URLs |
 | `SensitiveRedirect`    | high / medium / low | `>` into `/etc/...`, `/dev/sdX`, `~/.ssh/`, `~/.aws/`, `~/.kube/`, `~/.gnupg/`, `~/.bash_history`, `/var/log/`, etc. |
 
 ## Built-in `findings` (in `Text::Treesitter::Bash`)
@@ -64,6 +65,7 @@ my $checker = Text::Treesitter::Bash::Security::Checker->new(
         ReverseShellSink
         DangerousFilesystem
         IFSManipulation
+        InsecureDownload
     )],
 );
 ```

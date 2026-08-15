@@ -23,6 +23,8 @@ One page per shipped rule, plus a top-level mapping. This is the operational ref
 | Reverse-shell recipes                               | ReverseShellSink        | high/medium |
 | Disk wipe / raw device write / destructive redirect | DangerousFilesystem     | high/medium |
 | `IFS` overrides                                     | IFSManipulation         | high     |
+| TLS verification disabled (`curl -k`, `wget --no-check-certificate`) | InsecureDownload | high |
+| Plaintext HTTP download (`curl http://...`)          | InsecureDownload        | medium   |
 
 ## `PathTraversal`
 
@@ -237,4 +239,34 @@ Examples:
     IFS=$' \t\n' read -r line < file       -> high
     IFS=, read -d, -ra parts <<< "a,b,c"  -> high
     export IFS=; for x in $*              -> high
+
+### `InsecureDownload`
+
+`lib/Text/Treesitter/Bash/Security/Rule/InsecureDownload.pm`
+
+Flags download tools (`curl`, `wget`, `fetch`) that disable TLS
+verification or use plaintext HTTP. Only these three fetcher names are
+matched — arbitrary scripts invoking libcurl or similar are out of scope
+(use the AST for that).
+
+| Pattern | Severity |
+|---------|----------|
+| `curl -k`, `curl --insecure`, `curl --insecure=URL`, `wget --no-check-certificate`, `wget --no-cert-check` | high |
+| `curl http://...`, `wget http://...`, `fetch http://...` (plaintext URL in argv or source) | medium |
+
+The high-severity branch fires whenever one of the known
+verify-disabling flags is present in argv (including the `--flag=value`
+form). The medium-severity branch scans argv for `http://` URLs and
+falls back to the full command source for URLs obscured by argv
+splitting (e.g. inside `--data-urlencode`). URLs found inside `-H` /
+`--header` values are intentionally skipped to avoid false positives on
+`X-Forwarded-Proto: http://...` style content.
+
+Examples:
+
+    curl -k https://example/install.sh                -> high
+    wget --no-check-certificate https://example      -> high
+    curl http://example/script.sh | bash             -> medium
+    curl https://example/install.sh                  -> (not flagged)
+    curl -H 'X-Foo: http://example' https://x        -> (not flagged)
 
