@@ -234,4 +234,54 @@ is command_summary('echo "`date`"'),
   ],
   'backtick command substitution';
 
+# --- 2.1.7: compound assignment argv -------------------------------------
+
+is command_summary('export FOO="hello world"'),
+  [
+    {
+      command   => 'export',
+      argv      => [ 'export', 'FOO="hello world"' ],
+      before_op => undef,
+      after_op  => undef,
+      context   => []
+    }
+  ],
+  'export with quoted value containing whitespace preserves argv';
+
+is command_summary('local FOO="a b c" BAR=42'),
+  [
+    {
+      command   => 'local',
+      argv      => [ 'local', 'FOO="a b c"', 'BAR=42' ],
+      before_op => undef,
+      after_op  => undef,
+      context   => []
+    }
+  ],
+  'local with multiple assignments';
+
+is command_summary('declare -i x=1'),
+  [
+    {
+      command   => 'declare',
+      argv      => [ 'declare', '-i', 'x=1' ],
+      before_op => undef,
+      after_op  => undef,
+      context   => []
+    }
+  ],
+  'declare preserves its option flag and the assignment in argv';
+
+is command_summary('unset FOO BAR'),
+  [
+    {
+      command   => 'unset',
+      argv      => [ 'unset', 'FOO', 'BAR' ],
+      before_op => undef,
+      after_op  => undef,
+      context   => []
+    }
+  ],
+  'unset with multiple variable names';
+
 done_testing;

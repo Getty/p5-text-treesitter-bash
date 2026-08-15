@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash;
 # ABSTRACT: Parse Bash with Text::Treesitter and extract executable commands
-our $VERSION = '0.007';
+our $VERSION = '0.008';
 use strict;
 use warnings;
 use Alien::Tree::Sitter ();
@@ -641,8 +641,9 @@ sub _simple_command_entry {
   my ( $self, $node, $context, $before_op, $negated ) = @_;
 
   my $source = $node->text;
-  my @argv = grep { length $_ } split m/\s+/, $source;
-  my $name = _clean_word( $argv[0] // _first_child_text($node) );
+  my $type   = $node->type;
+
+  my ( $name, @argv ) = $self->_argv_from_simple_children($node);
 
   return {
     source     => $source,
@@ -655,6 +656,69 @@ sub _simple_command_entry {
     after_op   => undef,
     ( $negated ? ( negated => 1 ) : () ),
   };
+}
+
+# Walk the AST children of a declaration_command / unset_command /
+# test_command instead of splitting the source text on whitespace.
+# `export FOO="hello world"` therefore produces
+# argv = ['export', 'FOO="hello world"'] rather than the broken
+# ['export', 'FOO="hello', 'world"'] we used to return.
+sub _argv_from_simple_children {
+  my ( $self, $node ) = @_;
+
+  my $type = $node->type;
+  my ( $name, @argv );
+
+  if ( $type eq 'declaration_command' ) {
+    # First child is the unnamed keyword (export / local / declare /
+    # typeset / readonly); remaining named children are option
+    # `word` nodes (e.g. `declare -i`) and `variable_assignment`
+    # nodes whose raw text already preserves quoting.
+    for my $child ( $node->child_nodes ) {
+      if ( !$child->is_named ) {
+        $name = $child->text;
+        push @argv, $child->text;
+      }
+      elsif ( $child->type eq 'variable_assignment' ) {
+        push @argv, $child->text;
+      }
+      elsif ( $child->type eq 'word' ) {
+        # option flags like `-i`, `-p`, `-x`, `-r` etc.
+        push @argv, $child->text;
+      }
+    }
+  }
+  elsif ( $type eq 'unset_command' ) {
+    for my $child ( $node->child_nodes ) {
+      if ( !$child->is_named ) {
+        $name = $child->text;
+        push @argv, $child->text;
+      }
+      elsif ( $child->type eq 'variable_name' ) {
+        push @argv, $child->text;
+      }
+    }
+  }
+  elsif ( $type eq 'test_command' ) {
+    # test_command structure: [[  <expr>  ]] (or [ ... ]).
+    # The leading/trailing brackets are unnamed; the middle is a
+    # named expression. Push everything verbatim so callers see the
+    # full predicate text.
+    for my $child ( $node->child_nodes ) {
+      push @argv, $child->text;
+    }
+    $name = $argv[0] // q{};
+  }
+  else {
+    # Fallback: split on whitespace. Should never trigger for known
+    # simple_command types.
+    @argv = grep { length $_ } split m/\s+/, $node->text;
+    $name = $argv[0] // _first_child_text($node);
+  }
+
+  $name //= q{};
+  $name = _clean_word($name);
+  return ( $name, @argv );
 }
 
 sub _first_child_text {
