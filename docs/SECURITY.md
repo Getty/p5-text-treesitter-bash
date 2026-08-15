@@ -37,6 +37,7 @@ What the checker is **not**:
 | `DangerousFilesystem`  | high / medium | `dd of=/dev/sdX`, `mkfs*`, `fdisk`, `parted`, `: > /etc/...`, `truncate -s 0`, `shred`, mount/loop/crypto |
 | `IFSManipulation`      | high / medium | `IFS=` overrides, `$IFS`-bound expansions |
 | `InsecureDownload`     | high / medium | `curl -k`, `wget --no-check-certificate`, `--no-cert-check`; plaintext `http://` URLs |
+| `NetworkListener`      | high / medium / low | `nc -l`, `ncat -l`, `socat TCP-LISTEN`, `ssh -R` / `-D`; `python -m http.server`, `php -S`, `ruby -run -e httpd` |
 | `SensitiveRedirect`    | high / medium / low | `>` into `/etc/...`, `/dev/sdX`, `~/.ssh/`, `~/.aws/`, `~/.kube/`, `~/.gnupg/`, `~/.bash_history`, `/var/log/`, etc. |
 
 ## Built-in `findings` (in `Text::Treesitter::Bash`)
@@ -66,6 +67,7 @@ my $checker = Text::Treesitter::Bash::Security::Checker->new(
         DangerousFilesystem
         IFSManipulation
         InsecureDownload
+        NetworkListener
     )],
 );
 ```

@@ -161,6 +161,14 @@ C<--no-cert-check>) — C<high> — or with plaintext C<http://> URLs —
 C<medium>. A second-pass scan of the full source catches URLs that
 argv splitting obscured (e.g. inside a C<--data-urlencode> value).
 
+=item L<Text::Treesitter::Bash::Security::Rule::NetworkListener>
+
+Detects inbound listeners: C<nc -l...>, C<ncat -l>, C<socat TCP-LISTEN>,
+C<ssh -R> / C<ssh -D> tunnels and SOCKS proxies (C<high>); one-liner web
+servers C<python -m http.server>, C<php -S>, C<ruby -run -e httpd>,
+C<npx http-server> (C<medium>; C<high> when bound to C<0.0.0.0>, C<low>
+when bound to localhost).
+
 =back
 
 =head1 WRITING YOUR OWN RULE

@@ -25,6 +25,10 @@ One page per shipped rule, plus a top-level mapping. This is the operational ref
 | `IFS` overrides                                     | IFSManipulation         | high     |
 | TLS verification disabled (`curl -k`, `wget --no-check-certificate`) | InsecureDownload | high |
 | Plaintext HTTP download (`curl http://...`)          | InsecureDownload        | medium   |
+| Inbound TCP listener (`nc -l`, `socat TCP-LISTEN`)   | NetworkListener         | high     |
+| `ssh -R` reverse tunnel / `ssh -D` SOCKS proxy       | NetworkListener         | high     |
+| One-liner web server (`python -m http.server`)       | NetworkListener         | medium   |
+| PHP built-in server bound to localhost               | NetworkListener         | low      |
 
 ## `PathTraversal`
 
@@ -269,4 +273,36 @@ Examples:
     curl http://example/script.sh | bash             -> medium
     curl https://example/install.sh                  -> (not flagged)
     curl -H 'X-Foo: http://example' https://x        -> (not flagged)
+
+### `NetworkListener`
+
+`lib/Text/Treesitter/Bash/Security/Rule/NetworkListener.pm`
+
+Flags commands that open inbound network listeners. Pairs with
+`ReverseShellSink`: where that rule catches the *outbound* side of an
+attack, this rule catches the *inbound* side.
+
+| Pattern | Severity |
+|---------|----------|
+| `nc -l...`, `ncat -l`, `nc --listen` | high |
+| `socat TCP-LISTEN...`, `socat TCP4-LISTEN...`, `socat TCP6-LISTEN...` | high |
+| `ssh -R` (reverse tunnel) | high |
+| `ssh -D` (SOCKS proxy) | high |
+| `python -m http.server`, `python3 -m http.server`, `python2 -m SimpleHTTPServer` | medium |
+| `ruby -run -e httpd` | medium |
+| `npx http-server`, `npx serve`, `npx live-server` | medium |
+| `php -S 0.0.0.0:8000` (bound to all interfaces) | high |
+| `php -S 127.0.0.1:8000` (bound to localhost) | low |
+
+Examples:
+
+    nc -l 4444                              -> high
+    socat TCP-LISTEN:4444,fork EXEC:/bin/sh -> high
+    ssh -R 8080:internal:80 bastion         -> high
+    ssh -D 1080 bastion                      -> high
+    python3 -m http.server 8000              -> medium
+    php -S 0.0.0.0:8000                     -> high
+    php -S 127.0.0.1:8000                   -> low
+    nc host 80 < file                       -> (not flagged; outbound)
+    ssh user@host                           -> (not flagged)
 

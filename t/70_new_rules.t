@@ -132,4 +132,57 @@ ok(!has_dl("curl -H 'X-Foo: http://example' https://x.example"),  'http in heade
 ok(!has_dl('ls /tmp'),                                            'unrelated command does NOT trigger' );
 ok(!has_dl('git pull https://x.example/repo.git'),                 'non-fetcher command does NOT trigger' );
 
+# --- NetworkListener --------------------------------------------------
+
+my $nl_checker = Text::Treesitter::Bash::Security::Checker->new(
+  rules => [qw(NetworkListener)],
+);
+
+sub has_nl {
+  my ( $source ) = @_;
+  my @issues = $nl_checker->check_source($source);
+  return scalar( grep { $_->{rule} eq 'NetworkListener' } @issues );
+}
+
+sub nl_severity {
+  my ( $source ) = @_;
+  my @issues = $nl_checker->check_source($source);
+  my ($i) = grep { $_->{rule} eq 'NetworkListener' } @issues;
+  return $i ? $i->{severity} : undef;
+}
+
+ok( has_nl('nc -l 4444'),                                            'nc -l' );
+ok( has_nl('nc -lk 4444'),                                           'nc -lk combined flag' );
+ok( has_nl('ncat -l 4444'),                                          'ncat -l' );
+ok( has_nl('nc --listen 4444'),                                      'nc --listen' );
+ok( has_nl('socat TCP-LISTEN:4444,fork EXEC:/bin/sh'),              'socat TCP-LISTEN' );
+ok( has_nl('socat TCP4-LISTEN:80,reuseaddr EXEC:cat'),              'socat TCP4-LISTEN' );
+ok( has_nl('ssh -R 8080:internal:80 bastion'),                       'ssh -R reverse tunnel' );
+ok( has_nl('ssh -D 1080 bastion'),                                   'ssh -D SOCKS proxy' );
+is( nl_severity('nc -l 4444'),           'high', 'nc listener is high' );
+is( nl_severity('socat TCP-LISTEN:80'), 'high', 'socat listener is high' );
+is( nl_severity('ssh -R 8080:b:80'),    'high', 'ssh tunnel is high' );
+
+ok( has_nl('python -m http.server'),                                 'python -m http.server' );
+ok( has_nl('python3 -m http.server 8000'),                           'python3 -m http.server' );
+ok( has_nl('python2 -m SimpleHTTPServer'),                           'python2 SimpleHTTPServer' );
+ok( has_nl('ruby -run -e httpd . -p 8000'),                          'ruby -run -e httpd' );
+ok( has_nl('npx http-server -p 8000'),                               'npx http-server' );
+is( nl_severity('python3 -m http.server'),  'medium', 'python server is medium' );
+is( nl_severity('ruby -run -e httpd .'),   'medium', 'ruby server is medium' );
+
+ok( has_nl('php -S 0.0.0.0:8000'),                                   'php -S bound to all' );
+is( nl_severity('php -S 0.0.0.0:8000'), 'high', 'php 0.0.0.0 is high' );
+
+ok( has_nl('php -S 127.0.0.1:8000'),                                 'php -S bound to localhost' );
+is( nl_severity('php -S 127.0.0.1:8000'), 'low', 'php localhost is low' );
+
+# Negative cases.
+ok(!has_nl('nc host 80 < file'),                                     'nc outbound does NOT trigger' );
+ok(!has_nl('nc -z host 80'),                                         'nc -z port scan does NOT trigger' );
+ok(!has_nl('ssh user@host'),                                         'plain ssh does NOT trigger' );
+ok(!has_nl('ssh -p 2222 user@host'),                                 'ssh -p does NOT trigger' );
+ok(!has_nl('php --version'),                                         'php --version does NOT trigger' );
+ok(!has_nl('echo hello'),                                            'echo does NOT trigger' );
+
 done_testing;
