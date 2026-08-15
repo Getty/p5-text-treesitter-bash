@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash;
 # ABSTRACT: Parse Bash with Text::Treesitter and extract executable commands
-our $VERSION = '0.004';
+our $VERSION = '0.005';
 use strict;
 use warnings;
 use Alien::Tree::Sitter ();
@@ -127,6 +127,13 @@ C<heredoc_redirect>), C<operator> (e.g. C<< >= >>, C<< 2>& >>,
 C<< <<< >>), C<target> (the destination word for file_redirect /
 herestring, or the heredoc start marker for heredoc), and C<text>
 (the full raw text of the redirect). Empty array if no redirects.
+
+=item negated
+
+Boolean. Set to C<1> when the command sits inside a C<negated_command>
+node (i.e. after the C<!> operator). Absent otherwise. Security rules
+that want to know whether a command's exit status was discarded can
+match on this rather than the C<'negated'> context string.
 
 =back
 
@@ -337,18 +344,18 @@ sub _find_share_dir {
 }
 
 sub _walk_node {
-  my ( $self, $node, $context, $commands, $before_op ) = @_;
+  my ( $self, $node, $context, $commands, $before_op, $negated ) = @_;
 
   my $type = $node->type;
 
   if ( $type eq 'command' ) {
-    push @$commands, $self->_command_entry( $node, $context, $before_op );
-    $self->_walk_command_children( $node, $context, $commands );
+    push @$commands, $self->_command_entry( $node, $context, $before_op, $negated );
+    $self->_walk_command_children( $node, $context, $commands, $negated );
     return;
   }
 
   if ( $type eq 'declaration_command' || $type eq 'unset_command' || $type eq 'test_command' ) {
-    push @$commands, $self->_simple_command_entry( $node, $context, $before_op );
+    push @$commands, $self->_simple_command_entry( $node, $context, $before_op, $negated );
     # The children of these node types are not commands themselves
     # (variable_assignment, variable_name, [[ ... ]], etc.) — recursing
     # would produce duplicate entries.
@@ -365,6 +372,7 @@ sub _walk_node {
       context    => [@$context],
       before_op  => $before_op,
       after_op   => undef,
+      ( $negated ? ( negated => 1 ) : () ),
     };
     return;
   }
@@ -374,17 +382,19 @@ sub _walk_node {
     # `cmd1 && (cmd2; cmd3)` — cmd2 is behind `&&`). Propagate the
     # pending operator into the wrapper so the inner command's
     # `before_op` reflects the surrounding flow.
-    $self->_walk_children( $node, [ @$context, $type ], $commands, $before_op );
+    $self->_walk_children( $node, [ @$context, $type ], $commands, $before_op, $negated );
     return;
   }
 
   if ( $type eq 'pipeline' ) {
-    $self->_walk_children( $node, [ @$context, 'pipeline' ], $commands, $before_op );
+    $self->_walk_children( $node, [ @$context, 'pipeline' ], $commands, $before_op, $negated );
     return;
   }
 
   if ( $type eq 'negated_command' ) {
-    $self->_walk_children( $node, [ @$context, 'negated' ], $commands, $before_op );
+    # Mark every inner command as negated so security rules can match
+    # on the boolean rather than the context string.
+    $self->_walk_children( $node, [ @$context, 'negated' ], $commands, $before_op, 1 );
     return;
   }
 
@@ -392,7 +402,7 @@ sub _walk_node {
     my $body = $node->try_child_by_field_name('body');
     if ($body) {
       my $before = @$commands;
-      $self->_walk_node( $body, $context, $commands, $before_op );
+      $self->_walk_node( $body, $context, $commands, $before_op, $negated );
       # Promote the source to include the redirect text so security rules
       # see the full statement (e.g. ": > /etc/passwd" or
       # "bash -i >& /dev/tcp/..."). Also collect any redirect targets
@@ -407,11 +417,11 @@ sub _walk_node {
     }
   }
 
-  $self->_walk_children( $node, $context, $commands, $before_op );
+  $self->_walk_children( $node, $context, $commands, $before_op, $negated );
 }
 
 sub _walk_children {
-  my ( $self, $node, $context, $commands, $initial_before_op ) = @_;
+  my ( $self, $node, $context, $commands, $initial_before_op, $negated ) = @_;
 
   my $pending_op = $initial_before_op;
   my $last_was_command = 0;
@@ -443,7 +453,7 @@ sub _walk_children {
     }
 
     my $before_count = @$commands;
-    $self->_walk_node( $child, $context, $commands, $pending_op );
+    $self->_walk_node( $child, $context, $commands, $pending_op, $negated );
     $pending_op = undef;
     $last_was_command = @$commands > $before_count
       ? ( $child->type eq 'command' ? 1 : 0 )
@@ -452,7 +462,7 @@ sub _walk_children {
 }
 
 sub _walk_command_children {
-  my ( $self, $node, $context, $commands ) = @_;
+  my ( $self, $node, $context, $commands, $negated ) = @_;
 
   for my $child ( $node->child_nodes ) {
     next if !$child->is_named;
@@ -470,7 +480,7 @@ sub _walk_command_children {
       next;
     }
 
-    $self->_walk_node( $child, $context, $commands, undef );
+    $self->_walk_node( $child, $context, $commands, undef, $negated );
   }
 }
 
@@ -527,7 +537,7 @@ sub _collect_redirects {
 }
 
 sub _command_entry {
-  my ( $self, $node, $context, $before_op ) = @_;
+  my ( $self, $node, $context, $before_op, $negated ) = @_;
 
   my ( $name, @args );
   my $seen_name = 0;
@@ -567,12 +577,13 @@ sub _command_entry {
     end_byte   => $node->end_byte,
     context    => [@$context],
     before_op  => $before_op,
-    after_op   => undef
+    after_op   => undef,
+    ( $negated ? ( negated => 1 ) : () ),
   };
 }
 
 sub _simple_command_entry {
-  my ( $self, $node, $context, $before_op ) = @_;
+  my ( $self, $node, $context, $before_op, $negated ) = @_;
 
   my $source = $node->text;
   my @argv = grep { length $_ } split m/\s+/, $source;
@@ -586,7 +597,8 @@ sub _simple_command_entry {
     end_byte   => $node->end_byte,
     context    => [@$context],
     before_op  => $before_op,
-    after_op   => undef
+    after_op   => undef,
+    ( $negated ? ( negated => 1 ) : () ),
   };
 }
 

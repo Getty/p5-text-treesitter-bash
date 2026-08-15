@@ -68,6 +68,59 @@ is command_summary('! grep foo bar'),
   ],
   '! prefix wraps command with negated context';
 
+# `negated => 1` boolean on the command hash (2.2.2)
+{
+  my @cmds = $bash->commands('! grep foo bar');
+  is scalar @cmds, 1, '! grep produces one command';
+  ok $cmds[0]{negated}, '! grep command has negated => 1';
+}
+
+{
+  my @cmds = $bash->commands('echo hi');
+  is scalar @cmds, 1, 'plain echo produces one command';
+  ok !exists $cmds[0]{negated}, 'plain echo does NOT have negated key';
+}
+
+{
+  my @cmds = $bash->commands('echo a; ! echo b');
+  is scalar @cmds, 2, 'two commands via semicolon';
+  ok !exists $cmds[0]{negated}, 'first (non-negated) command has no negated key';
+  ok $cmds[1]{negated}, 'second (negated) command has negated => 1';
+}
+
+{
+  my @cmds = $bash->commands('! echo a && echo b');
+  is scalar @cmds, 2, '! cmd && cmd: two commands';
+  ok $cmds[0]{negated}, 'first command (after !) has negated => 1';
+  ok !exists $cmds[1]{negated}, 'second command (after &&) has no negated key';
+}
+
+{
+  my @cmds = $bash->commands('! (echo a; echo b)');
+  is scalar @cmds, 2, '! (cmd; cmd): both commands extracted';
+  ok $cmds[0]{negated}, 'first command inside negated subshell has negated => 1';
+  ok $cmds[1]{negated}, 'second command inside negated subshell has negated => 1';
+}
+
+{
+  my @cmds = $bash->commands('echo a | ! grep x');
+  is scalar @cmds, 2, 'pipeline with negation';
+  ok !exists $cmds[0]{negated}, 'first pipeline cmd has no negated key';
+  ok $cmds[1]{negated}, 'second pipeline cmd has negated => 1';
+}
+
+{
+  my @cmds = $bash->commands('! export FOO=bar');
+  is scalar @cmds, 1, '! export produces one command';
+  ok $cmds[0]{negated}, 'export inside ! has negated => 1';
+}
+
+{
+  my @cmds = $bash->commands('! echo a > /tmp/x');
+  is scalar @cmds, 1, '! with redirect produces one command';
+  ok $cmds[0]{negated}, 'redirect inside ! has negated => 1';
+}
+
 # --- Subshell -----------------------------------------------------------
 
 is command_summary('(echo a; echo b)'),
