@@ -284,4 +284,25 @@ is command_summary('unset FOO BAR'),
   ],
   'unset with multiple variable names';
 
+# --- 2.2.6: background `&` operator ------------------------------------
+
+is command_summary('rm -rf /tmp & sleep 5'),
+  [
+    {
+      command   => 'rm',
+      argv      => [ 'rm', '-rf', '/tmp' ],
+      before_op => undef,
+      after_op  => undef,    # & is intentionally NOT recorded as after_op
+      context   => []
+    },
+    {
+      command   => 'sleep',
+      argv      => [ 'sleep', '5' ],
+      before_op => '&',
+      after_op  => undef,
+      context   => []
+    }
+  ],
+  'background & sets before_op on the next command but not after_op on the previous';
+
 done_testing;
