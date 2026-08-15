@@ -1,5 +1,38 @@
 {{$NEXT}}
 
+  - New rule: InsecureDownload (high/medium) — curl/wget/fetch with
+    TLS verification disabled (-k, --insecure, --no-check-certificate,
+    --no-cert-check) or plaintext http:// URLs. Skips URLs inside
+    -H / --header / --data-urlencode argument values
+  - New rule: NetworkListener (high/medium/low) — nc/ncat listeners,
+    socat TCP-LISTEN, ssh -R reverse tunnels and -D SOCKS proxies,
+    plus one-liner web servers (python -m http.server, php -S,
+    ruby -run -e httpd, npx http-server). php -S escalates to high
+    when bound to 0.0.0.0, downgrades to low when bound to localhost
+  - New rule: ForkBomb (high) — self-recursive function with
+    backgrounding: :(){ :|:& };: and named variants. Detected by
+    inspecting each function_definition's body for self-recursion
+    plus | or & operators
+  - New rule: PrivilegeEscalation (high/medium) — sudo/doas/pkexec
+    opening root shells (positional shell name or -i/-s/--login flag,
+    or sudo su chain), su to a privileged user, chmod SetUID/SetGID
+    (symbolic u+s/g+s/+s and numeric 4755/2755/6755 — leading octal
+    digit inspected), systemd-run --user --scope
+  - EnvDangerousVars: add BASH_FUNC_ prefix matching (BASH_FUNC_*
+    exports), Git worktree vars (GIT_WORK_TREE, GIT_INDEX_FILE),
+    runtime preload vars (PYTHONSTARTUP, NODE_OPTIONS, PERL5OPT,
+    RUBYOPT)
+  - SensitiveAccess: extend with 13 additional credential paths
+    (.docker/config.json, .gnupg/private-keys, .git-credentials,
+    .netrc, .pypirc, .npmrc, .cargo/credentials, gcloud / azure / gh
+    configs, /proc/*/environ, /etc/gshadow, /etc/sudoers.d/)
+  - UnquotedExpansion: include leading $ in captured var so the
+    rule returns $bar instead of bar
+  - Add `requires 'Encode';` (Bash.pm uses Encode::decode for UTF-8
+    validation)
+  - Sync docs/SECURITY.md and docs/RULES.md with current rule state
+  - Tests: add 38 new subtests for InsecureDownload, NetworkListener,
+    ForkBomb, PrivilegeEscalation in t/70_new_rules.t (now 133 tests)
   - Add full POD to all shipped modules (Text::Treesitter::Bash,
     Security::Checker, Security::Rule, all 6 Rule classes)
   - Add docs/SECURITY.md, docs/RULES.md, docs/CODE-ANALYSIS.md,
