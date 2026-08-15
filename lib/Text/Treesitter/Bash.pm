@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash;
 # ABSTRACT: Parse Bash with Text::Treesitter and extract executable commands
-our $VERSION = '0.006';
+our $VERSION = '0.007';
 use strict;
 use warnings;
 use Alien::Tree::Sitter ();
@@ -359,7 +359,12 @@ sub _walk_node {
   }
 
   if ( $type eq 'declaration_command' || $type eq 'unset_command' || $type eq 'test_command' ) {
-    push @$commands, $self->_simple_command_entry( $node, $context, $before_op, $negated );
+    my $entry = $self->_simple_command_entry( $node, $context, $before_op, $negated );
+    # `test_command` (`[[ ... ]]`, `[ ... ]`) is a condition, not an
+    # executed command — tag it so security rules can skip it.
+    $entry->{test}    = 1 if $type eq 'test_command';
+    $entry->{context} = [ 'test', @{ $entry->{context} } ] if $type eq 'test_command';
+    push @$commands, $entry;
     # The children of these node types are not commands themselves
     # (variable_assignment, variable_name, [[ ... ]], etc.) — recursing
     # would produce duplicate entries.
@@ -399,6 +404,52 @@ sub _walk_node {
     # Mark every inner command as negated so security rules can match
     # on the boolean rather than the context string.
     $self->_walk_children( $node, [ @$context, 'negated' ], $commands, $before_op, 1 );
+    return;
+  }
+
+  # Control-flow wrappers: push their kind into the context so rules
+  # can scope findings to the right scope (e.g. a `rm` inside an `if`
+  # body is conditional, but a `rm` in a `for` loop iterates over many
+  # inputs and warrants a higher severity).
+  if ( $type eq 'if_statement'
+    || $type eq 'for_statement'
+    || $type eq 'while_statement'
+    || $type eq 'case_statement'
+    || $type eq 'elif_clause'
+    || $type eq 'else_clause'
+    || $type eq 'do_group' )
+  {
+    $self->_walk_children( $node, [ @$context, $type ], $commands, $before_op, $negated );
+    return;
+  }
+
+  # `function_definition` introduces a named function (the `word`
+  # child). We extract that name as a separate command-like entry
+  # so callers can see function declarations, then walk the body with
+  # `function_definition` in the context.
+  if ( $type eq 'function_definition' ) {
+    my $name;
+    for my $child ( $node->child_nodes ) {
+      if ( $child->is_named && $child->type eq 'word' ) {
+        $name = _clean_word( $child->text );
+        last;
+      }
+    }
+    if ( defined $name ) {
+      push @$commands, {
+        source     => $node->text,
+        command    => $name,
+        argv       => [ $name ],
+        start_byte => $node->start_byte,
+        end_byte   => $node->end_byte,
+        context    => [ 'function_definition', @$context ],
+        before_op  => $before_op,
+        after_op   => undef,
+        function   => 1,
+        ( $negated ? ( negated => 1 ) : () ),
+      };
+    }
+    $self->_walk_children( $node, [ @$context, 'function_definition' ], $commands, $before_op, $negated );
     return;
   }
 

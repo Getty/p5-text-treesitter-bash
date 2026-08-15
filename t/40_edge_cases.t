@@ -121,6 +121,72 @@ is command_summary('! grep foo bar'),
   ok $cmds[0]{negated}, 'redirect inside ! has negated => 1';
 }
 
+# --- 2.2.8: control-flow context ----------------------------------------
+
+{
+  my @cmds = $bash->commands('if true; then rm x; fi');
+  is scalar @cmds, 2, 'if/then/fi produces two commands';
+  ok scalar(grep { 'if_statement' eq $_ } @{ $cmds[0]{context} }),
+    'condition command is inside if_statement context';
+  ok scalar(grep { 'if_statement' eq $_ } @{ $cmds[1]{context} }),
+    'body command is inside if_statement context';
+}
+
+{
+  my @cmds = $bash->commands('for f in a b; do echo $f; done');
+  is scalar @cmds, 1, 'for/do/done produces one command';
+  ok scalar(grep { $_ eq 'for_statement' } @{ $cmds[0]{context} }),
+    'echo inside for has for_statement context';
+  ok scalar(grep { $_ eq 'do_group' } @{ $cmds[0]{context} }),
+    'echo inside do/done has do_group context';
+}
+
+{
+  my @cmds = $bash->commands('while true; do echo hi; done');
+  is scalar @cmds, 2, 'while/do/done produces two commands';
+  ok scalar(grep { $_ eq 'while_statement' } @{ $cmds[1]{context} }),
+    'echo inside while has while_statement context';
+}
+
+{
+  my @cmds = $bash->commands('case x in a) echo a;; esac');
+  ok scalar(grep { $_ eq 'case_statement' } @{ $cmds[0]{context} }),
+    'echo inside case has case_statement context';
+}
+
+# --- 2.2.9: function_definition name extraction -------------------------
+
+{
+  my @cmds = $bash->commands('foo() { bar; }');
+  is scalar @cmds, 2, 'function definition produces two commands';
+  is $cmds[0]{command}, 'foo', 'first entry is the function name';
+  ok $cmds[0]{function}, 'function entry has function => 1';
+  ok scalar(grep { $_ eq 'function_definition' } @{ $cmds[0]{context} }),
+    'function name entry has function_definition context';
+  is $cmds[1]{command}, 'bar', 'second entry is the function body command';
+}
+
+{
+  my @cmds = $bash->commands('function foo { bar; }');
+  is $cmds[0]{command}, 'foo', '`function foo { ... }` also extracts function name';
+  ok $cmds[0]{function}, 'function keyword form also flagged';
+}
+
+# --- 2.2.4: test_command marked as test ---------------------------------
+
+{
+  my @cmds = $bash->commands('[[ -f /etc/passwd ]]');
+  is scalar @cmds, 1, '[[ ... ]] produces one entry';
+  ok $cmds[0]{test}, '[[ ]] is marked test => 1';
+  ok scalar(grep { $_ eq 'test' } @{ $cmds[0]{context} }),
+    '[[ ]] has test in context';
+}
+
+{
+  my @cmds = $bash->commands('[ -f /etc/passwd ]');
+  ok $cmds[0]{test}, '[ ... ] is also marked test => 1';
+}
+
 # --- Subshell -----------------------------------------------------------
 
 is command_summary('(echo a; echo b)'),
