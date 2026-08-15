@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash;
 # ABSTRACT: Parse Bash with Text::Treesitter and extract executable commands
-our $VERSION = '0.005';
+our $VERSION = '0.006';
 use strict;
 use warnings;
 use Alien::Tree::Sitter ();
@@ -246,12 +246,16 @@ sub findings {
     }
   }
 
+  return @findings if !@commands;
+
   for my $index ( 1 .. $#commands ) {
     my $left  = $commands[ $index - 1 ];
     my $right = $commands[$index];
 
-    next unless ( $left->{after_op} // '' ) =~ m/^\|/;
-    next unless ( $right->{before_op} // '' ) =~ m/^\|/;
+    # `^\|` would also match `||` (OR), which is not a pipe. Anchor the
+    # alternation explicitly to `|` and `|&` only.
+    next unless ( $left->{after_op} // '' ) =~ m/^\|(?:&)?\z/;
+    next unless ( $right->{before_op} // '' ) =~ m/^\|(?:&)?\z/;
     next unless _is_network_fetcher( _command_basename( $left->{command} ) );
     next unless _is_shell_interpreter( _command_basename( $right->{command} ) );
 
@@ -675,12 +679,16 @@ sub _is_shell_interpreter {
   my ( $name ) = @_;
 
   return !!{
-    sh   => 1,
-    bash => 1,
-    dash => 1,
-    zsh  => 1,
-    fish => 1,
-    ksh  => 1
+    sh      => 1,
+    bash    => 1,
+    dash    => 1,
+    zsh     => 1,
+    fish    => 1,
+    ksh     => 1,
+    csh     => 1,
+    tcsh    => 1,
+    ash     => 1,
+    busybox => 1,
   }->{$name};
 }
 
@@ -704,13 +712,42 @@ sub _is_dynamic_shell {
     return scalar grep { $_ eq '-c' } @$argv;
   }
 
-  if ( $name eq 'perl' || $name eq 'ruby' || $name eq 'node' ) {
-    return scalar grep { $_ eq '-e' } @$argv;
+  # perl: -e, -E (with features), -p/-n (read lines), -pe/-ne (loop+exec),
+  #       -i (in-place, often paired with -pe/-ne).
+  if ( $name eq 'perl' ) {
+    return scalar grep { m/^-[eEpni]|^-[pPnN][eE]\z/ } @$argv;
   }
 
-  if ( $name =~ m/\Apython(?:\d+(?:\.\d+)?)?\z/ ) {
-    return scalar grep { $_ eq '-c' } @$argv;
+  # ruby: -e evaluates a string, -r/--require loads a library (often used
+  #       with require-time side effects).
+  if ( $name eq 'ruby' ) {
+    return scalar grep { $_ eq '-e' || $_ eq '--eval' || m/^-r/ } @$argv;
   }
+
+  if ( $name eq 'node' ) {
+    return scalar grep { $_ eq '-e' || $_ eq '--eval' || $_ eq '-p' } @$argv;
+  }
+
+  if ( _is_python_interpreter($name) ) {
+    # python -c "code" and -m module (executes a module as __main__).
+    return scalar grep { $_ eq '-c' || $_ eq '-m' } @$argv;
+  }
+
+  return 0;
+}
+
+# Recognise any Python-flavoured interpreter by basename (2.1.5). Matches
+# python, python3, python3.11, pypy, pypy3, jython, micropython, etc.
+sub _is_python_interpreter {
+  my ( $name ) = @_;
+
+  return 1 if $name eq 'python';
+  return 1 if $name =~ m/\Apython\d+(?:\.\d+)*\z/;
+  return 1 if $name eq 'pypy';
+  return 1 if $name =~ m/\Apypy\d+(?:\.\d+)*\z/;
+  return 1 if $name eq 'jython';
+  return 1 if $name eq 'micropython';
+  return 1 if $name eq 'nu';
 
   return 0;
 }
