@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::MissingAbsolutePath;
 # ABSTRACT: Detect commands without absolute paths
-our $VERSION = '0.003';
+our $VERSION = '0.004';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';
@@ -21,11 +21,13 @@ identifier-like character. Severity is C<low> - this is mostly a
 
 =head1 EXAMPLES
 
-    /usr/bin/rm -rf /tmp/x   -> not flagged
-    ./script.sh              -> not flagged
+    /usr/bin/rm -rf /tmp/x   -> not flagged (absolute)
+    ./script.sh              -> not flagged (explicit relative)
+    ../bin/cmd               -> not flagged (explicit relative)
+    cmd/subcmd               -> low (non-trivial relative path)
     rm -rf /tmp/x            -> not flagged (in allowlist)
     weirdtool foo bar        -> low (MissingAbsolutePath)
-    #!/usr/bin/env bash      -> not flagged
+    1foo bar                 -> not flagged (not identifier-shaped)
 
 =head1 SEE ALSO
 
@@ -61,13 +63,31 @@ sub check {
 
   my $name = $command->{command} // '';
 
-  return if $name =~ m{/};
-
+  # Absolute paths (C</usr/bin/cmd>) — caller has been explicit.
+  return if $name =~ m{^/};
+  # Explicit relative paths (C<./script.sh>, C<../bin/cmd>) — relative
+  # to cwd, intentional.
   return if $name =~ m{^\./} || $name =~ m{^\.\./};
 
-  return if exists $KNOWN_COMMANDS{$name};
+  # Anything else with a slash (e.g. C<cmd/subcmd>, C<foo/bar>) is a
+  # non-trivial relative path that bypasses the allowlist by virtue of
+  # looking like an absolute path. Flag it.
+  if ( $name =~ m{/} ) {
+    return {
+      rule     => 'MissingAbsolutePath',
+      severity => 'low',
+      message  => "Command '$name' used without absolute path",
+      command  => $name
+    };
+  }
 
+  return if exists $KNOWN_COMMANDS{$name};
   return if exists $SHELL_BUILTINS{$name};
+
+  # Names that do not look like identifiers (start with a digit, contain
+  # characters that aren't valid in a command word) are syntactic
+  # constructs, not real command names — do not flag them.
+  return if $name !~ m{^[a-zA-Z_][a-zA-Z0-9_+\-.]*\z};
 
   return {
     rule     => 'MissingAbsolutePath',

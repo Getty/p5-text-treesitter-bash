@@ -98,6 +98,13 @@ ok(!has_rule('ls -la /tmp',             'MissingAbsolutePath'), 'ls in allowlist
 ok(!has_rule('echo hi',                 'MissingAbsolutePath'), 'builtin-ish OK' );
 ok( has_rule('weirdtool foo bar',       'MissingAbsolutePath'), 'unknown command without path triggers' );
 
+# --- MissingAbsolutePath: edge cases (2.5.17/18) -----------------------
+
+ok( has_rule('cmd/subcmd arg',          'MissingAbsolutePath'), 'relative cmd/subcmd triggers' );
+ok( has_rule('foo/bar baz',             'MissingAbsolutePath'), 'foo/bar triggers' );
+ok(!has_rule('1foo bar',                'MissingAbsolutePath'), 'non-identifier name skipped' );
+ok(!has_rule('echo $x',                 'MissingAbsolutePath'), 'builtin name with expansion skipped' );
+
 # --- Severity sanity ----------------------------------------------------
 
 subtest 'severity values are low/medium/high' => sub {
