@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash;
 # ABSTRACT: Parse Bash with Text::Treesitter and extract executable commands
-our $VERSION = '0.008';
+our $VERSION = '0.009';
 use strict;
 use warnings;
 use Alien::Tree::Sitter ();
@@ -355,11 +355,13 @@ sub _find_share_dir {
   my $installed = eval { path( dist_dir('Text-Treesitter-Bash') ) };
   return $installed if $installed && -d $installed;
 
-  my $module_path = $INC{'Text/Treesitter/Bash.pm'};
-  if ($module_path) {
-    my $share = path($module_path)->parent(4)->child('share');
-    return $share if -d $share;
-  }
+  # In a repo checkout this file lives at
+  #   .../lib/Text/Treesitter/Bash.pm
+  # so the share dir is a sibling of the `lib` directory — concrete
+  # navigation, no `parent(N)` magic to break if the package layout
+  # shifts.
+  my $share = path(__FILE__)->parent(3)->sibling('share');
+  return $share if -d $share;
 
   croak 'Could not find Text-Treesitter-Bash share directory';
 }
@@ -612,7 +614,6 @@ sub _command_entry {
   my ( $self, $node, $context, $before_op, $negated ) = @_;
 
   my ( $name, @args );
-  my $seen_name = 0;
   my @fields = $node->field_names_with_child_nodes;
 
   while (@fields) {
@@ -621,7 +622,6 @@ sub _command_entry {
 
     if ( defined $field && $field eq 'name' ) {
       $name = _clean_word( $child->text );
-      $seen_name = 1;
     }
     elsif ( defined $field && $field eq 'argument' ) {
       # process_substitution nodes are tagged as `argument` fields in
@@ -632,9 +632,6 @@ sub _command_entry {
       # (i.e. $(...) / backticks), on the other hand, IS a real argument
       # whose value is the captured stdout of the inner command — keep it.
       next if $child->type eq 'process_substitution';
-      push @args, $child->text;
-    }
-    elsif ( !defined $field && $seen_name && _is_argument_node($child) ) {
       push @args, $child->text;
     }
   }
@@ -761,28 +758,6 @@ sub _operator_text {
   return ';' if $text =~ m/^\s*\n\s*$/;
 
   return undef;
-}
-
-sub _is_argument_node {
-  my ( $node ) = @_;
-
-  return !!{
-    word                 => 1,
-    raw_string           => 1,
-    string               => 1,
-    ansi_c_string        => 1,
-    translated_string    => 1,
-    concatenation        => 1,
-    command_substitution => 1,
-    expansion            => 1,
-    simple_expansion     => 1,
-    arithmetic_expansion => 1,
-    array                => 1,
-    subscript            => 1,
-    regex                => 1,
-    extglob_pattern      => 1,
-    brace_expression     => 1,
-  }->{ $node->type };
 }
 
 sub _clean_word {
