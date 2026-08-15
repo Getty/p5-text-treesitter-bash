@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use Alien::Tree::Sitter ();
 use Carp qw( croak );
+use Encode qw();
 use File::ShareDir qw( dist_dir );
 use File::Temp qw( tempdir );
 use Path::Tiny qw( path );
@@ -200,6 +201,15 @@ sub new {
 sub parse {
   my ( $self, $source ) = @_;
   croak 'Source required' unless defined $source;
+  # tree-sitter is byte-oriented; feeding it invalid UTF-8 (or a NUL
+  # byte, which bash grammars generally reject) results in opaque
+  # runtime errors. Reject up front so callers get a clear message.
+  my $copy = $source;
+  my $decoded = eval { Encode::decode( 'UTF-8', $copy, Encode::FB_CROAK ); 1 };
+  croak "Source contains invalid UTF-8: $@" unless $decoded;
+  if ( index( $source, "\0" ) >= 0 ) {
+    croak 'Source contains a NUL byte';
+  }
   return $self->_treesitter->parse_string($source);
 }
 
@@ -282,6 +292,13 @@ sub _treesitter {
     open my $capture, '>', \$stdout or croak "Unable to capture build output: $!";
     local *STDOUT = $capture;
     Text::Treesitter::Language::build( "$lang_lib", "$lang_dir" );
+    # If the build silently failed (missing gcc, missing tree-sitter
+    # headers, etc.), Text::Treesitter::Language::build returns without
+    # producing the .so. Surface the captured compiler output rather
+    # than letting the loader fail with a confusing FileNotFound.
+    if ( !-f $lang_lib ) {
+      croak "Failed to build tree-sitter-bash grammar at $lang_lib: $stdout";
+    }
   }
 
   return $self->{_ts} = Text::Treesitter->new(

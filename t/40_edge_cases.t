@@ -254,6 +254,18 @@ is [ $bash->commands('') ], [], 'empty string yields no commands';
 eval { $bash->commands(undef) };
 ok( $@, 'undef source croaks' );
 
+# --- 2.4.1: parse() input validation ------------------------------------
+
+{
+  my $bad = "\xc3\x28";    # invalid 2-byte UTF-8 sequence
+  eval { $bash->parse($bad) };
+  like $@, qr/invalid UTF-8/, 'invalid UTF-8 source croaks';
+
+  my $nul = "echo hi\x00done";
+  eval { $bash->parse($nul) };
+  like $@, qr/NUL byte/, 'NUL byte in source croaks';
+}
+
 # --- parse() returns a tree ---------------------------------------------
 
 my $tree = $bash->parse('echo hi');
