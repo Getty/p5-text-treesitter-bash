@@ -185,4 +185,35 @@ ok(!has_nl('ssh -p 2222 user@host'),                                 'ssh -p doe
 ok(!has_nl('php --version'),                                         'php --version does NOT trigger' );
 ok(!has_nl('echo hello'),                                            'echo does NOT trigger' );
 
+# --- ForkBomb ---------------------------------------------------------
+
+my $fb_checker = Text::Treesitter::Bash::Security::Checker->new(
+  rules => [qw(ForkBomb)],
+);
+
+sub has_fb {
+  my ( $source ) = @_;
+  my @issues = $fb_checker->check_source($source);
+  return scalar( grep { $_->{rule} eq 'ForkBomb' } @issues );
+}
+
+sub fb_severity {
+  my ( $source ) = @_;
+  my @issues = $fb_checker->check_source($source);
+  my ($i) = grep { $_->{rule} eq 'ForkBomb' } @issues;
+  return $i ? $i->{severity} : undef;
+}
+
+ok( has_fb(':(){ :|:& };:'),                                         'classic colon fork-bomb' );
+ok( has_fb(':(){ :|:& };:  # the classic'),                          'classic with trailing comment' );
+ok( has_fb('bomb(){ bomb|bomb& }; bomb'),                            'named bomb fork-bomb' );
+ok( has_fb('fork(){ (fork &) }; fork'),                              'subshell fork-bomb' );
+ok( has_fb('p(){ p|p& }; p'),                                        'single-letter p fork-bomb' );
+is( fb_severity(':(){ :|:& };:'), 'high', 'fork-bomb is high' );
+
+ok(!has_fb('harmless(){ echo hi; }; harmless'),                      'harmless function does NOT trigger' );
+ok(!has_fb('greet(){ echo "hi $1"; }; greet world'),                 'normal function does NOT trigger' );
+ok(!has_fb('echo hello'),                                            'plain echo does NOT trigger' );
+ok(!has_fb('alias ll=ls'),                                           'alias does NOT trigger' );
+
 done_testing;

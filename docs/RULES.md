@@ -29,6 +29,7 @@ One page per shipped rule, plus a top-level mapping. This is the operational ref
 | `ssh -R` reverse tunnel / `ssh -D` SOCKS proxy       | NetworkListener         | high     |
 | One-liner web server (`python -m http.server`)       | NetworkListener         | medium   |
 | PHP built-in server bound to localhost               | NetworkListener         | low      |
+| Classic fork-bomb (`:(){ :|:& };:`)                  | ForkBomb                | high     |
 
 ## `PathTraversal`
 
@@ -305,4 +306,35 @@ Examples:
     php -S 127.0.0.1:8000                   -> low
     nc host 80 < file                       -> (not flagged; outbound)
     ssh user@host                           -> (not flagged)
+
+### `ForkBomb`
+
+`lib/Text/Treesitter/Bash/Security/Rule/ForkBomb.pm`
+
+Detects the textbook fork-bomb: a function whose body recursively
+calls itself combined with a pipe or background operator. The
+canonical Bash form is `:(){ :|:& };:`. Severity: `high`.
+
+Implemented as a self-recursion check on the function body — the
+rule only fires when both signals are present:
+
+=over 4
+
+=item * the function name appears inside its own body, AND
+
+=item * the body contains C<|> or C<&>.
+
+=back
+
+Wrappers like C<bash -c ':() { :|:& }; :'> are out of scope for this
+rule (the AST inside the string is opaque). They are caught by the
+built-in C<dynamic_shell> finding instead.
+
+Examples:
+
+    :(){ :|:& };:                            -> high
+    bomb(){ bomb|bomb& }; bomb               -> high
+    fork(){ (fork &) }; fork                 -> high
+    harmless(){ echo hi; }; harmless         -> (not flagged)
+    alias ll='ls -la'                        -> (not flagged)
 

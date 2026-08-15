@@ -169,6 +169,13 @@ servers C<python -m http.server>, C<php -S>, C<ruby -run -e httpd>,
 C<npx http-server> (C<medium>; C<high> when bound to C<0.0.0.0>, C<low>
 when bound to localhost).
 
+=item L<Text::Treesitter::Bash::Security::Rule::ForkBomb>
+
+Detects the textbook fork-bomb pattern: a function whose body
+recurses into itself with a pipe or background operator
+(C<high>). C<bash -c '...'> wrappers are out of scope here — they
+should be caught by C<dynamic_shell> / C<shell_interpreter>.
+
 =back
 
 =head1 WRITING YOUR OWN RULE
