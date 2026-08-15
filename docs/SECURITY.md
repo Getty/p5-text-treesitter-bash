@@ -28,14 +28,15 @@ What the checker is **not**:
 |------|----------------|---------|
 | `PathTraversal`        | high / medium | `../` in argv; `/proc/self`, `/proc/$$`, `/sys/fs` |
 | `DangerousFlags`       | high / medium / low | `rm -rf`, `rm --force --recursive`, force + recursive combos |
-| `SensitiveAccess`      | high / medium / low | 26 credential / introspection paths (see [RULES.md](RULES.md)) |
-| `EnvDangerousVars`     | high / low | `LD_PRELOAD`, `LD_AUDIT`, `DYLD_*`, `BASH_ENV`, `ENV`, `CDPATH`, `GIT_DIR` |
-| `UnquotedExpansion`    | medium | unquoted `$VAR` followed by `/`, `-`, `.` |
+| `SensitiveAccess`      | high / medium / low | 30+ credential / introspection paths incl. `~/.pgpass`, Docker socket, macOS Keychain, browser profiles (see [RULES.md](RULES.md)) |
+| `EnvDangerousVars`     | high / low | `LD_PRELOAD`, `LD_AUDIT`, `DYLD_*`, `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASH_FUNC_*`, `IFS`, `PROMPT_COMMAND`, `PS4`, `PYTHONPATH`, `NODE_PATH`, `PERL5*`, `RUBY*`, `CLASSPATH`, `CDPATH`, `GIT_DIR` |
+| `UnquotedExpansion`    | medium | unquoted `$VAR`, `${VAR...}`, `$((expr))` followed by `/`, `-`, `.` |
 | `MissingAbsolutePath`  | low | commands without `/`, `./`, `../`, not in allowlist or shell builtin |
 | `DangerousExpansion`   | high | `${!var}`, `${var@P}`, `${var=value}`, `${$(...)}` (CVE-2026-29783 class) |
 | `ReverseShellSink`     | high / medium | `nc -e`, `ncat -e`, `socat exec:`, `bash -i` + `/dev/tcp`, `ssh ProxyCommand`, `mkfifo` |
 | `DangerousFilesystem`  | high / medium | `dd of=/dev/sdX`, `mkfs*`, `fdisk`, `parted`, `: > /etc/...`, `truncate -s 0`, `shred`, mount/loop/crypto |
 | `IFSManipulation`      | high / medium | `IFS=` overrides, `$IFS`-bound expansions |
+| `SensitiveRedirect`    | high / medium / low | `>` into `/etc/...`, `/dev/sdX`, `~/.ssh/`, `~/.aws/`, `~/.kube/`, `~/.gnupg/`, `~/.bash_history`, `/var/log/`, etc. |
 
 ## Built-in `findings` (in `Text::Treesitter::Bash`)
 
