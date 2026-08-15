@@ -15,10 +15,17 @@ sub has_rule {
 
 ok( has_rule('rm -rf /tmp/x',         'DangerousFlags'), 'rm -rf combined flag triggers' );
 ok( has_rule('rm -fr /tmp/x',         'DangerousFlags'), 'rm -fr (reversed order) triggers' );
+ok( has_rule('rm -fR /tmp/x',         'DangerousFlags'), 'rm -fR (capital R) triggers' );
+ok( has_rule('rm -FR /tmp/x',         'DangerousFlags'), 'rm -FR (capital both) triggers' );
+ok( has_rule('rm -RF /tmp/x',         'DangerousFlags'), 'rm -RF (capital R first) triggers' );
 ok( has_rule('rm --force --recursive /tmp/x', 'DangerousFlags'), 'long flags trigger' );
 ok( has_rule('rm --recursive --force /tmp/x', 'DangerousFlags'), 'long flags reversed trigger' );
+ok( has_rule('cp -rf src dst',        'DangerousFlags'), 'cp -rf triggers (whitelist)' );
+ok( has_rule('mv -rf src dst',        'DangerousFlags'), 'mv -rf triggers (whitelist)' );
 ok(!has_rule('rm -r /tmp/x',           'DangerousFlags'), 'rm -r alone does NOT trigger high' );
 ok(!has_rule('rm -f /tmp/x',           'DangerousFlags'), 'rm -f alone does NOT trigger high' );
+ok(!has_rule('ls -rf',                 'DangerousFlags'), 'ls -rf does NOT trigger (not destructive)' );
+ok(!has_rule('gcc -fR foo',            'DangerousFlags'), 'gcc -fR does NOT trigger (not destructive)' );
 
 # --- PathTraversal: edge cases ------------------------------------------
 
