@@ -1,9 +1,38 @@
 package Text::Treesitter::Bash::Security::Rule::EnvDangerousVars;
 # ABSTRACT: Detect dangerous environment variables in commands
-our $VERSION = '0.002';
+our $VERSION = '0.003';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';
+
+=encoding utf8
+
+=head1 NAME
+
+Text::Treesitter::Bash::Security::Rule::EnvDangerousVars - detect dangerous environment variables
+
+=head1 DESCRIPTION
+
+Scans the raw source text of each command for assignments / uses of
+environment variables known to enable code execution or hijack
+process behaviour:
+
+=over 4
+
+=item high   - C<LD_PRELOAD>, C<LD_AUDIT>, C<DYLD_INSERT_LIBRARIES>, C<DYLD_LIBRARY_PATH>, C<BASH_ENV>, C<ENV>
+
+=item low    - C<CDPATH>, C<GIT_DIR>
+
+=back
+
+Operates on raw source, so false positives are possible when a
+variable name appears in an unrelated context (e.g. inside a string).
+
+=head1 SEE ALSO
+
+L<Text::Treesitter::Bash::Security::Rule>.
+
+=cut
 
 my @DANGEROUS_VARS = (
   [ 'LD_PRELOAD',   'high',   'LD_PRELOAD can inject shared libraries' ],

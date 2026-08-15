@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash;
 # ABSTRACT: Parse Bash with Text::Treesitter and extract executable commands
-our $VERSION = '0.003';
+our $VERSION = '0.004';
 use strict;
 use warnings;
 use Alien::Tree::Sitter ();
@@ -115,9 +115,21 @@ C<$(...)> or backticks.
 
 The shell operator (C<&&>, C<||>, C<|>, C<|&>, C<;>, newline) that
 appears before / after this command in source order. Either may be
-undef at the start/end of the input.
+undef at the start/end of the input. B<Note:> C<&> (background) is not
+emitted as C<after_op> — it is a background marker, not a sequence
+operator.
+
+=item redirects
+
+Arrayref of redirect nodes attached to the command. Each entry is a
+hashref with C<type> (C<file_redirect>, C<herestring_redirect>,
+C<heredoc_redirect>), C<operator> (e.g. C<< >= >>, C<< 2>& >>,
+C<< <<< >>), C<target> (the destination word for file_redirect /
+herestring, or the heredoc start marker for heredoc), and C<text>
+(the full raw text of the redirect). Empty array if no redirects.
 
 =back
+
 
 =head2 findings
 
@@ -337,12 +349,32 @@ sub _walk_node {
 
   if ( $type eq 'declaration_command' || $type eq 'unset_command' || $type eq 'test_command' ) {
     push @$commands, $self->_simple_command_entry( $node, $context, $before_op );
-    $self->_walk_command_children( $node, $context, $commands );
+    # The children of these node types are not commands themselves
+    # (variable_assignment, variable_name, [[ ... ]], etc.) — recursing
+    # would produce duplicate entries.
+    return;
+  }
+
+  if ( $type eq 'variable_assignment' ) {
+    push @$commands, {
+      source     => $node->text,
+      command    => $node->text,
+      argv       => [ $node->text ],
+      start_byte => $node->start_byte,
+      end_byte   => $node->end_byte,
+      context    => [@$context],
+      before_op  => $before_op,
+      after_op   => undef,
+    };
     return;
   }
 
   if ( $type eq 'command_substitution' || $type eq 'process_substitution' || $type eq 'subshell' ) {
-    $self->_walk_children( $node, [ @$context, $type ], $commands, undef );
+    # The wrapper itself sits behind the surrounding `before_op` (e.g.
+    # `cmd1 && (cmd2; cmd3)` — cmd2 is behind `&&`). Propagate the
+    # pending operator into the wrapper so the inner command's
+    # `before_op` reflects the surrounding flow.
+    $self->_walk_children( $node, [ @$context, $type ], $commands, $before_op );
     return;
   }
 
@@ -359,7 +391,18 @@ sub _walk_node {
   if ( $type eq 'redirected_statement' ) {
     my $body = $node->try_child_by_field_name('body');
     if ($body) {
+      my $before = @$commands;
       $self->_walk_node( $body, $context, $commands, $before_op );
+      # Promote the source to include the redirect text so security rules
+      # see the full statement (e.g. ": > /etc/passwd" or
+      # "bash -i >& /dev/tcp/..."). Also collect any redirect targets
+      # so rules can match on file paths / destinations.
+      if (@$commands > $before) {
+        $commands->[-1]{source} = $node->text;
+        for my $child ( $node->child_nodes ) {
+          $self->_collect_redirects( $child, $commands->[-1] );
+        }
+      }
       return;
     }
   }
@@ -371,20 +414,40 @@ sub _walk_children {
   my ( $self, $node, $context, $commands, $initial_before_op ) = @_;
 
   my $pending_op = $initial_before_op;
+  my $last_was_command = 0;
 
   for my $child ( $node->child_nodes ) {
     if ( !$child->is_named ) {
       my $operator = _operator_text( $child->text );
       if ( defined $operator ) {
-        $commands->[-1]{after_op} = $operator if @$commands;
+        # & is a background marker, not a sequence operator — don't record
+        # it as after_op. The next command, if any, still sees it as
+        # before_op via $pending_op.
+        $commands->[-1]{after_op} = $operator
+          if $operator ne '&' && @$commands;
         $pending_op = $operator;
+        $last_was_command = 0;
       }
       next;
     }
 
+    # tree-sitter-bash does not emit an operator between sibling commands
+    # at the same level (including the implicit newline case). When the
+    # previous sibling was a command and no operator was seen, treat the
+    # gap as an implicit `;` and propagate it as the pending before_op.
+    if ( $last_was_command && !defined $pending_op && @$commands ) {
+      if ( !defined $commands->[-1]{after_op} ) {
+        $commands->[-1]{after_op} = ';';
+      }
+      $pending_op = ';';
+    }
+
     my $before_count = @$commands;
     $self->_walk_node( $child, $context, $commands, $pending_op );
-    $pending_op = undef if @$commands > $before_count;
+    $pending_op = undef;
+    $last_was_command = @$commands > $before_count
+      ? ( $child->type eq 'command' ? 1 : 0 )
+      : 0;
   }
 }
 
@@ -394,8 +457,73 @@ sub _walk_command_children {
   for my $child ( $node->child_nodes ) {
     next if !$child->is_named;
     next if $child->type eq 'command_name';
+    # Prefix assignments (e.g. `LD_PRELOAD=x command`) are not separate
+    # commands — they belong to the containing command. Their text is
+    # already visible via the parent's source raw bytes.
+    next if $child->type eq 'variable_assignment';
+
+    if (   $child->type eq 'file_redirect'
+      || $child->type eq 'herestring_redirect'
+      || $child->type eq 'heredoc_redirect' )
+    {
+      $self->_collect_redirects( $child, $commands->[-1] ) if @$commands;
+      next;
+    }
+
     $self->_walk_node( $child, $context, $commands, undef );
   }
+}
+
+# Extract structured redirect information from a file_redirect,
+# herestring_redirect, or heredoc_redirect node and append each entry to
+# the command hash's `redirects` array.
+sub _collect_redirects {
+  my ( $self, $node, $command ) = @_;
+
+  my $type = $node->type;
+  my $text = $node->text;
+  $command->{redirects} //= [];
+
+  return unless $type eq 'file_redirect'
+            || $type eq 'herestring_redirect'
+            || $type eq 'heredoc_redirect';
+
+  # Iterate through the redirect's children. The redirection symbol (e.g.
+  # `>`, `>>`, `<`, `>&`, `<<<`, `<<`) is an unnamed child; the target
+  # is a named child (word, number, raw_string, heredoc_start, ...).
+  # An optional file_descriptor precedes the symbol.
+  my $descriptor;
+  my $operator;
+  my $target;
+  my @named;
+
+  for my $child ( $node->child_nodes ) {
+    if ( !$child->is_named ) {
+      $operator = $child->text;
+    }
+    elsif ( $child->type eq 'file_descriptor' ) {
+      $descriptor = $child->text;
+    }
+    else {
+      push @named, $child;
+    }
+  }
+
+  # For file_redirect, the target is the first named child after the
+  # descriptor. For herestring, it's the first named child. For heredoc,
+  # it's the heredoc_start (first named child).
+  $target = $named[0]->text if @named;
+
+  if ( defined $descriptor && defined $operator ) {
+    $operator = $descriptor . $operator;
+  }
+
+  push @{ $command->{redirects} }, {
+    type     => $type,
+    operator => $operator,
+    target   => $target,
+    text     => $text,
+  };
 }
 
 sub _command_entry {
@@ -414,6 +542,14 @@ sub _command_entry {
       $seen_name = 1;
     }
     elsif ( defined $field && $field eq 'argument' ) {
+      # process_substitution nodes are tagged as `argument` fields in
+      # the bash grammar, but they are wrapper constructs (process
+      # substitution creates an FD, not a string value). Skipping them
+      # here leaves them to be walked by _walk_command_children, which
+      # adds the inner command with the correct context. command_substitution
+      # (i.e. $(...) / backticks), on the other hand, IS a real argument
+      # whose value is the captured stdout of the inner command — keep it.
+      next if $child->type eq 'process_substitution';
       push @args, $child->text;
     }
     elsif ( !defined $field && $seen_name && _is_argument_node($child) ) {

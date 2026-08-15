@@ -1,21 +1,72 @@
 package Text::Treesitter::Bash::Security::Rule::SensitiveAccess;
 # ABSTRACT: Detect access to sensitive files and directories
-our $VERSION = '0.002';
+our $VERSION = '0.003';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';
 
+=encoding utf8
+
+=head1 NAME
+
+Text::Treesitter::Bash::Security::Rule::SensitiveAccess - detect argv that touches credential/secret paths
+
+=head1 DESCRIPTION
+
+Matches argv entries against a fixed list of credential- or
+introspection-sensitive paths. Severity scales with sensitivity:
+
+=over 4
+
+=item high   - C</etc/shadow>, C</etc/sudoers>, C<~/.ssh/>, C<~/.aws/>, C<~/.kube/>
+
+=item medium - C</etc/passwd>, C</etc/group>, C</proc/self/>, C</sys/fs/>
+
+=item low    - C</dev/> (often benign, but worth a glance)
+
+=back
+
+Pattern matching is naive regex on the raw argv text, so quoted or
+expanded paths can evade detection. If you need robust matching on
+those, use the AST.
+
+=head1 SEE ALSO
+
+L<Text::Treesitter::Bash::Security::Rule>,
+L<Text::Treesitter::Bash::Security::Rule::PathTraversal>.
+
+=cut
+
 my @SENSITIVE_PATTERNS = (
-  [ qr{/etc/shadow},       'high',   'Shadow password file access' ],
-  [ qr{/etc/sudoers},      'high',   'sudoers file access' ],
-  [ qr{/\.ssh/},           'high',   'SSH directory access' ],
-  [ qr{/\.aws/},           'high',   'AWS credentials directory access' ],
-  [ qr{/\.kube/},          'high',   'Kubernetes config access' ],
-  [ qr{/etc/passwd},       'medium', 'Password database access' ],
-  [ qr{/etc/group},        'medium', 'Group database access' ],
-  [ qr{/proc/self/},       'medium', 'Process self introspection' ],
-  [ qr{/sys/fs/},          'medium', 'Filesystem sysfs access' ],
-  [ qr{/dev/},             'low',    'Device file access' ],
+  # high — direct credential stores
+  [ qr{/etc/shadow},           'high',   'Shadow password file access' ],
+  [ qr{/etc/sudoers},          'high',   'sudoers file access' ],
+  [ qr{/etc/sudoers\.d/},      'high',   'sudoers.d file access' ],
+  [ qr{/\.ssh/},               'high',   'SSH directory access' ],
+  [ qr{/\.aws/},               'high',   'AWS credentials directory access' ],
+  [ qr{/\.kube/},              'high',   'Kubernetes config access' ],
+  [ qr{/\.docker/config\.json}, 'high',   'Docker config access' ],
+  [ qr{/\.gnupg/private-keys}, 'high',   'GnuPG private keys access' ],
+  [ qr{/\.git-credentials},    'high',   'Git stored credentials access' ],
+  [ qr{/\.netrc},              'high',   'netrc credentials access' ],
+  [ qr{/\.pypirc},             'high',   'PyPI credentials access' ],
+  [ qr{/\.npmrc},              'high',   'npm credentials access' ],
+  [ qr{/\.cargo/credentials},  'high',   'Cargo credentials access' ],
+  [ qr{/google-cloud/},        'high',   'gcloud config access' ],
+  [ qr{/\.azure/},             'high',   'Azure CLI config access' ],
+  [ qr{/\.config/gh/},         'high',   'GitHub CLI config access' ],
+  [ qr{/\.docker/config\.json}, 'high',   'Docker daemon config access' ],
+  [ qr{/gcloud/},              'high',   'gcloud config access' ],
+  [ qr{/\.config/gcloud/},     'high',   'gcloud config access' ],
+  # medium — system DBs and introspection
+  [ qr{/etc/passwd},           'medium', 'Password database access' ],
+  [ qr{/etc/group},            'medium', 'Group database access' ],
+  [ qr{/etc/gshadow},          'medium', 'Group shadow file access' ],
+  [ qr{/proc/self/},           'medium', 'Process self introspection' ],
+  [ qr{/proc/\d+/environ},     'medium', 'Process environment access' ],
+  [ qr{/sys/fs/},              'medium', 'Filesystem sysfs access' ],
+  # low — generally benign but worth flagging
+  [ qr{/dev/},                 'low',    'Device file access' ],
 );
 
 sub check {
