@@ -1,14 +1,172 @@
 package Text::Treesitter::Bash;
 # ABSTRACT: Parse Bash with Text::Treesitter and extract executable commands
-our $VERSION = '0.002';
+our $VERSION = '0.003';
 use strict;
 use warnings;
+use Alien::Tree::Sitter ();
 use Carp qw( croak );
 use File::ShareDir qw( dist_dir );
 use File::Temp qw( tempdir );
 use Path::Tiny qw( path );
 use Text::Treesitter;
 use Text::Treesitter::Language;
+
+=encoding utf8
+
+=head1 NAME
+
+Text::Treesitter::Bash - Parse Bash with Text::Treesitter and extract executable commands
+
+=head1 SYNOPSIS
+
+    use Text::Treesitter::Bash;
+
+    my $bash = Text::Treesitter::Bash->new;
+    my $tree = $bash->parse( $source );
+
+    my @commands = $bash->commands( $source );
+    for my $cmd (@commands) {
+        printf "%s [%s] argv=(%s)\n",
+            $cmd->{command}, $cmd->{start_byte},
+            join( ',', @{ $cmd->{argv} } );
+    }
+
+    my @findings = $bash->findings( $source );
+    for my $f (@findings) {
+        print "$f->{type}: $f->{message}\n";
+    }
+
+=head1 DESCRIPTION
+
+Text::Treesitter::Bash vendors the upstream L<tree-sitter-bash|https://github.com/tree-sitter/tree-sitter-bash>
+grammar (currently 0.20.5) and exposes a small Perl layer on top of L<Text::Treesitter>:
+
+=over 4
+
+=item * C<parse> - returns the raw tree-sitter tree.
+
+=item * C<commands> - walks the tree and returns one hash per C<command>,
+C<declaration_command>, C<unset_command> or C<test_command> AST node,
+including argv, source span, the enclosing shell context (pipeline,
+subshell, negated, ...) and the surrounding operators (C<&&>, C<||>,
+C<|>, C<|&>, C<;>, newline).
+
+=item * C<findings> - convenience policy-light checks built on top of
+C<commands>: shell-interpreters, dynamic-evaluation flags
+(C<bash -c>, C<perl -e>, ...), C<eval>/C<source>/C<.>, and
+network-fetch piped into shell.
+
+=back
+
+For richer security rules, see L<Text::Treesitter::Bash::Security::Checker>.
+
+=head1 METHODS
+
+=head2 new
+
+    my $bash = Text::Treesitter::Bash->new;
+    my $custom = Text::Treesitter::Bash->new( lang_dir => '/opt/ts-bash' );
+
+Returns a parser instance. The optional C<lang_dir> points to a directory
+containing the tree-sitter grammar sources (C<src/parser.c>, C<src/scanner.c>,
+C<src/node-types.json>, C<package.json>); defaults to the grammar shipped in
+this distribution's share dir.
+
+=head2 parse
+
+    my $tree = $bash->parse( $source );
+
+Parses C<$source> and returns a L<Text::Treesitter::Tree>. Croaks if C<$source>
+is undef.
+
+=head2 commands
+
+    my @commands = $bash->commands( $source );
+
+Returns a list of command hashrefs. Each command has:
+
+=over 4
+
+=item source
+
+Raw text of the AST node (operator + whitespace preserved).
+
+=item command
+
+First word of the command, basename-stripped, quotes stripped
+(C<'foo'>, C<"foo"> both become C<foo>).
+
+=item argv
+
+Arrayref of all args, including C<command> as C<argv[0]>. Raw, with
+quotes and expansions intact.
+
+=item start_byte, end_byte
+
+Byte offsets into the original source.
+
+=item context
+
+Arrayref of enclosing node types. E.g. C<['pipeline']> for commands
+inside C<foo | bar>, C<['command_substitution']> for commands inside
+C<$(...)> or backticks.
+
+=item before_op, after_op
+
+The shell operator (C<&&>, C<||>, C<|>, C<|&>, C<;>, newline) that
+appears before / after this command in source order. Either may be
+undef at the start/end of the input.
+
+=back
+
+=head2 findings
+
+    my @findings = $bash->findings( $source );
+
+Runs a fixed set of policy-light checks and returns a list of hashrefs
+with C<type> and C<message> (and the offending command). Recognised
+C<type> values:
+
+=over 4
+
+=item shell_interpreter
+
+C<sh>, C<bash>, C<dash>, C<zsh>, C<fish>, C<ksh> invoked directly.
+Often a sign that the caller wants to run arbitrary string.
+
+=item dynamic_shell
+
+C<bash -c ...>, C<perl -e ...>, C<ruby -e ...>, C<python -c ...>,
+C<node -e ...>. Code passed as a string is opaque to the caller.
+
+=item shell_eval
+
+C<eval>, C<source>, C<.> (dot/source) used. Reads and executes a
+file in the current shell.
+
+=item network_to_shell
+
+A network fetcher (C<curl>, C<wget>, C<fetch>, C<aria2c>) piped into
+a shell interpreter. Classic "curl|sh" install vector.
+
+=back
+
+For richer rules see L<Text::Treesitter::Bash::Security::Checker>.
+
+=head1 TREE-SITTER NOTES
+
+This distribution vendors the grammar in F<share/tree-sitter-bash/>. On
+first use, sources are copied into a C<File::Temp> directory and compiled
+via L<Text::Treesitter::Language::build>. Compilation is silent unless
+it fails; the resulting C<.so> lives in TMPDIR until CLEANUP.
+
+=head1 SEE ALSO
+
+L<Text::Treesitter>, L<Text::Treesitter::Bash::Security::Checker>,
+L<Text::Treesitter::Bash::Security::Rule>,
+L<https://github.com/tree-sitter/tree-sitter-bash>.
+
+=cut
 
 sub new {
   my ( $class, %args ) = @_;
@@ -132,6 +290,19 @@ sub _build_runtime_lang_dir {
 
     $target->parent->mkpath;
     $source->copy($target);
+  }
+
+  # tree-sitter-bash's src/parser.c does `#include "tree_sitter/parser.h"`.
+  # Text::Treesitter::Language::build has no -I hook, so we copy the
+  # canonical header (from Alien::Tree::Sitter's vendored tree-sitter)
+  # next to src/ so the include resolves locally.
+  my ($inc) = Alien::Tree::Sitter->cflags =~ m/-I(\S+)/;
+  if ($inc && -d "$inc/tree_sitter") {
+    my $target = $tmp->child('src')->child('tree_sitter');
+    $target->mkpath;
+    for my $header (path("$inc/tree_sitter")->children) {
+      $header->copy( $target->child( $header->basename ) );
+    }
   }
 
   $self->{_tmpdir} = $tmp;
@@ -302,6 +473,7 @@ sub _operator_text {
   return $text if $text eq '|';
   return $text if $text eq '|&';
   return $text if $text eq ';';
+  return $text if $text eq '&';
   return ';' if $text =~ m/^\s*\n\s*$/;
 
   return undef;
@@ -319,7 +491,13 @@ sub _is_argument_node {
     concatenation        => 1,
     command_substitution => 1,
     expansion            => 1,
-    simple_expansion     => 1
+    simple_expansion     => 1,
+    arithmetic_expansion => 1,
+    array                => 1,
+    subscript            => 1,
+    regex                => 1,
+    extglob_pattern      => 1,
+    brace_expression     => 1,
   }->{ $node->type };
 }
 

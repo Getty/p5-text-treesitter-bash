@@ -1,5 +1,42 @@
 {{$NEXT}}
 
+  - Add full POD to all shipped modules (Text::Treesitter::Bash,
+    Security::Checker, Security::Rule, all 6 Rule classes)
+  - Add docs/SECURITY.md, docs/RULES.md, docs/CODE-ANALYSIS.md,
+    docs/SECURITY-RESEARCH.md, docs/SIMILAR-PROJECTS.md,
+    docs/ALIEN-TREE-SITTER-PROPOSAL.md
+  - Add project-local Claude skill treesitter-bash-security
+  - Fix Checker.pm: hoist `require Text::Treesitter::Bash` to top-level `use`
+    (was a perl-core violation: lazy optimization via require)
+  - Walker: add background operator `&` to `_operator_text`
+  - Walker: extend `_is_argument_node` with array, subscript, regex,
+    extglob_pattern, arithmetic_expansion, brace_expression
+  - DangerousFlags: rewrite on top of a data table; was dead-code (the
+    `%DANGEROUS_FLAGS` hash was defined but never read)
+  - DangerousExpansion: use single quotes around `${var@P/Q}` message
+    (avoids Perl `@P` array-interpolation warning)
+  - MissingAbsolutePath: allow shell builtins (cd, echo, read, exit,
+    return, pwd, set, unset, alias, export, ...) and add common package
+    managers / build tools / monitors to the allowlist
+  - New rule: IFSManipulation (high) — IFS= overrides and $IFS-bound
+    expansions
+  - New rule: DangerousExpansion (high) — ${!var}, ${var@P},
+    ${var=value}, nested $(...) in ${...} (CVE-2026-29783 class)
+  - New rule: ReverseShellSink (high) — nc -e, ncat -e, socat exec:,
+    bash -i with /dev/tcp, ssh ProxyCommand, mkfifo
+  - New rule: DangerousFilesystem (high/medium) — dd of=/dev/sdX,
+    mkfs*, fdisk, parted, : > /etc/..., truncate -s 0 system paths,
+    shred, mount / loop / crypto
+  - SensitiveAccess: extend with 13 additional credential paths
+    (.docker/config.json, .gnupg/private-keys, .git-credentials,
+    .netrc, .pypirc, .npmrc, .cargo/credentials, gcloud / azure / gh
+    configs, /proc/*/environ, /etc/gshadow, /etc/sudoers.d/)
+  - Tests: add t/40_edge_cases.t, t/50_findings_extra.t,
+    t/60_rule_edge_cases.t, t/70_new_rules.t
+  - Static verification: all 12 modules and all 8 test files pass
+    `perl -c` against stubbed Text::Treesitter dependency
+  - Bump $VERSION to 0.003 across all 11 modules
+
 0.001     2026-04-24 02:54:50Z
 
   - Initial release

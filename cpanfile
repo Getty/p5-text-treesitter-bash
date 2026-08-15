@@ -1,4 +1,5 @@
 requires 'perl', '5.026';
+requires 'Alien::Tree::Sitter', '0.001';
 requires 'Carp';
 requires 'File::ShareDir';
 requires 'File::Temp';
