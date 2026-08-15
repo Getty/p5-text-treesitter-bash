@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::PathTraversal;
 # ABSTRACT: Detect path traversal patterns in commands
-our $VERSION = '0.004';
+our $VERSION = '0.005';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';
@@ -30,6 +30,14 @@ L<Text::Treesitter::Bash::Security::Rule::SensitiveAccess>.
 
 =cut
 
+# (regex, message) pairs for the medium-severity introspection
+# findings. The high-severity `..` match is checked separately because
+# its regex is structurally different (no fixed prefix).
+my @INTROSPECTION_PATTERNS = (
+  [ qr{(?:^|/)proc/(?:self|\$\$)}, 'Process introspection path' ],
+  [ qr{(?:^|/)sys/fs},           'sysfs path' ],
+);
+
 sub check {
   my ( $class, $command ) = @_;
 
@@ -51,24 +59,18 @@ sub check {
       };
     }
 
-    if ( $arg =~ m{(?:^|/)proc/(?:self|\$\$)} ) {
-      push @issues, {
-        rule     => 'PathTraversal',
-        severity => 'medium',
-        message  => "Process introspection path: $arg",
-        arg      => $arg,
-        command  => $command->{command}
-      };
-    }
-
-    if ( $arg =~ m{(?:^|/)sys/fs} ) {
-      push @issues, {
-        rule     => 'PathTraversal',
-        severity => 'medium',
-        message  => "sysfs path: $arg",
-        arg      => $arg,
-        command  => $command->{command}
-      };
+    for my $tuple (@INTROSPECTION_PATTERNS) {
+      my ( $pattern, $prefix ) = @$tuple;
+      if ( $arg =~ $pattern ) {
+        push @issues, {
+          rule     => 'PathTraversal',
+          severity => 'medium',
+          message  => "$prefix: $arg",
+          arg      => $arg,
+          command  => $command->{command}
+        };
+        last;
+      }
     }
   }
 
