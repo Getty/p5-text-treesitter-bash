@@ -12,10 +12,12 @@ One page per shipped rule, plus a top-level mapping. This is the operational ref
 | Credential files (`/etc/shadow`, `~/.ssh/`, ...)    | SensitiveAccess         | high     |
 | System DB files (`/etc/passwd`, `/etc/group`)       | SensitiveAccess         | medium   |
 | `/dev/` access                                      | SensitiveAccess         | low      |
-| Shared-library injection (`LD_PRELOAD`, DYLD*)      | EnvDangerousVars        | high     |
-| Shell auto-exec (`BASH_ENV`, `ENV`)                 | EnvDangerousVars        | high     |
-| `CDPATH` / `GIT_DIR` hijack                         | EnvDangerousVars        | low      |
-| Word-splitting via unquoted `$VAR`                  | UnquotedExpansion       | medium   |
+| Shared-library injection (`LD_PRELOAD`, DYLD*, `LD_LIBRARY_PATH`) | EnvDangerousVars | high |
+| Shell auto-exec (`BASH_ENV`, `ENV`, `SHELLOPTS`, `IFS`)          | EnvDangerousVars | high |
+| Interpreter preload (`PYTHONPATH`, `NODE_PATH`, `PERL5LIB`, `RUBYLIB`, `CLASSPATH`) | EnvDangerousVars | high |
+| Exported function (`BASH_FUNC_*`)                    | EnvDangerousVars        | high     |
+| `CDPATH` / `GIT_DIR` / `GIT_WORK_TREE` / `GIT_INDEX_FILE` hijack | EnvDangerousVars | low |
+| Word-splitting via unquoted `$VAR` / `${VAR}` / `$((expr))` | UnquotedExpansion | medium |
 | Commands without absolute path / allowlist          | MissingAbsolutePath     | low      |
 | Indirect / nested parameter expansion (CVE-2026-29783) | DangerousExpansion   | high     |
 | Reverse-shell recipes                               | ReverseShellSink        | high/medium |
@@ -67,18 +69,20 @@ Examples:
 
 Filesystem paths that should not be touched without explicit user consent.
 
-| Path                        | Severity |
-|-----------------------------|----------|
-| `/etc/shadow`               | high     |
-| `/etc/sudoers`              | high     |
-| `~/.ssh/`                   | high     |
-| `~/.aws/`                   | high     |
-| `~/.kube/`                  | high     |
-| `/etc/passwd`               | medium   |
-| `/etc/group`                | medium   |
-| `/proc/self/`               | medium   |
-| `/sys/fs/`                  | medium   |
-| `/dev/`                     | low      |
+| Path                                                      | Severity |
+|-----------------------------------------------------------|----------|
+| `/etc/shadow`, `/etc/sudoers`, `/etc/sudoers.d/`           | high     |
+| `~/.ssh/`, `~/.aws/`, `~/.kube/`, `~/.docker/config.json`  | high     |
+| `~/.gnupg/private-keys`, `~/.git-credentials`, `~/.netrc`  | high     |
+| `~/.pypirc`, `~/.npmrc`, `~/.cargo/credentials`            | high     |
+| `~/.pgpass`, `~/.config/gh/`, `~/.config/gcloud/`          | high     |
+| `~/.azure/`, `/var/run/docker.sock`, `/lib/modules/`      | high     |
+| `/Library/Keychains/`, `~/.Trash/...Keychain` (macOS)     | high     |
+| `~/.config/google-chrome/`, `~/.config/chromium/`         | high     |
+| `~/.mozilla/firefox/`, `~/.cache/google-chrome/`           | high     |
+| `/etc/passwd`, `/etc/group`, `/etc/gshadow`               | medium   |
+| `/proc/self/`, `/proc/<pid>/environ`, `/sys/fs/`          | medium   |
+| `/dev/` (non-whitelisted)                                  | low      |
 
 ## `EnvDangerousVars`
 
@@ -86,26 +90,46 @@ Filesystem paths that should not be touched without explicit user consent.
 
 Sets or uses variables known to enable code execution or hijack process behaviour.
 
-| Variable                       | Severity |
-|--------------------------------|----------|
-| `LD_PRELOAD`                   | high     |
-| `LD_AUDIT`                     | high     |
-| `DYLD_INSERT_LIBRARIES`        | high     |
-| `DYLD_LIBRARY_PATH`            | high     |
-| `BASH_ENV`                     | high     |
-| `ENV`                          | high     |
-| `CDPATH`                       | low      |
-| `GIT_DIR`                      | low      |
+| Variable                          | Severity |
+|-----------------------------------|----------|
+| `LD_PRELOAD`                      | high     |
+| `LD_AUDIT`                        | high     |
+| `LD_LIBRARY_PATH`                 | high     |
+| `DYLD_INSERT_LIBRARIES`           | high     |
+| `DYLD_LIBRARY_PATH`               | high     |
+| `BASH_ENV`                        | high     |
+| `ENV`                             | high     |
+| `SHELLOPTS`                       | high     |
+| `BASH_FUNC_*` (any)               | high     |
+| `IFS`                             | high     |
+| `PROMPT_COMMAND`                  | high     |
+| `PS4`                             | high     |
+| `PYTHONPATH`                      | high     |
+| `PYTHONSTARTUP`                   | high     |
+| `NODE_PATH`                       | high     |
+| `NODE_OPTIONS`                    | high     |
+| `PERL5LIB`                        | high     |
+| `PERL5OPT`                        | high     |
+| `RUBYLIB`                         | high     |
+| `RUBYOPT`                         | high     |
+| `CLASSPATH`                       | high     |
+| `CDPATH`                          | low      |
+| `GIT_DIR`                         | low      |
+| `GIT_WORK_TREE`                   | low      |
+| `GIT_INDEX_FILE`                  | low      |
 
 ## `UnquotedExpansion`
 
 `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm`
 
-Unquoted `$VAR` followed by a path delimiter (`/`, `-`, `.`) is the classic
-word-splitting + glob footgun.
+Unquoted `$VAR`, `${VAR...}`, or `$((expr))` followed by a path delimiter
+(`/`, `-`, `.`) is the classic word-splitting + glob footgun.
 
     cat $HOME/.ssh/id_rsa       -> medium
     rm -rf $TMPDIR/cache        -> medium
+    cat ${HOME}/.ssh/id_rsa     -> medium
+    rm -rf ${TMPDIR}/cache      -> medium
+    cat $((1+2))/foo            -> medium
 
 False negatives are possible if the expansion is buried in complex quoting
 (rule operates on raw source text).
