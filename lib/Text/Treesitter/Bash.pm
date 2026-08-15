@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash;
 # ABSTRACT: Parse Bash with Text::Treesitter and extract executable commands
-our $VERSION = '0.009';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use Alien::Tree::Sitter ();
@@ -193,7 +193,6 @@ sub new {
 
   return bless {
     lang_dir => $args{lang_dir},
-    _tmpdir  => undef,
     _ts      => undef
   }, $class;
 }
@@ -258,7 +257,10 @@ sub findings {
 
   return @findings if !@commands;
 
-  for my $index ( 1 .. $#commands ) {
+  # `for (1 .. $#commands)` on an empty list evaluates to `1..-1` which
+  # perl 5.26..5.34 returned as the two-element list (1, 0). Guard
+  # explicitly so behaviour is identical across versions.
+  for my $index ( 1 .. scalar(@commands) - 1 ) {
     my $left  = $commands[ $index - 1 ];
     my $right = $commands[$index];
 
@@ -345,7 +347,6 @@ sub _build_runtime_lang_dir {
     }
   }
 
-  $self->{_tmpdir} = $tmp;
   return $tmp;
 }
 
