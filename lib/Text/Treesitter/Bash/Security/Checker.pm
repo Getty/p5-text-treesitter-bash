@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Checker;
 # ABSTRACT: Run security rules against parsed Bash commands
-our $VERSION = '0.003';
+our $VERSION = '0.004';
 use strict;
 use warnings;
 use Carp qw( croak );
@@ -177,7 +177,15 @@ sub new {
     if ( !ref $rule ) {
       my $class_name = "Text::Treesitter::Bash::Security::Rule::$rule";
       load($class_name);
+      croak "Rule class '$class_name' does not implement check()"
+        unless $class_name->can('check');
       $rule = $class_name;
+    }
+    elsif ( ref $rule eq 'SCALAR' || ref $rule eq '' ) {
+      croak "Rule specification must be a class name or blessed object, got scalar";
+    }
+    elsif ( !$rule->can('check') ) {
+      croak "Rule '$rule' does not implement check()";
     }
     push @instances, $rule;
   }
@@ -193,7 +201,11 @@ sub check_commands {
   for my $command (@commands) {
     for my $rule ( @{ $self->{rules} } ) {
       my @result = $rule->check($command);
-      push @issues, @result if @result;
+      # Defensive: filter out anything that isn't a hashref, so a rule
+      # that mistakenly returns `undef` (single scalar) does not corrupt
+      # the issue list. The recommended contract is `()` for no-match;
+      # see L<Text::Treesitter::Bash::Security::Rule/CONTRACT>.
+      push @issues, grep { ref eq 'HASH' } @result;
     }
   }
 
