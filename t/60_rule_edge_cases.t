@@ -54,6 +54,19 @@ ok( has_rule('cat /dev/disk0',          'SensitiveAccess'), '/dev/disk0 (macOS) 
 ok( has_rule('cat /dev/loop0',          'SensitiveAccess'), '/dev/loop0 triggers' );
 ok(!has_rule('ls /home/user',           'SensitiveAccess'), 'home dir does not trigger' );
 
+# --- SensitiveAccess: extended credential / daemon / browser coverage (2.5.15) ---
+
+ok( has_rule('cat ~/.pgpass',                      'SensitiveAccess'), 'pgpass credentials' );
+ok( has_rule('ls /var/run/docker.sock',            'SensitiveAccess'), 'docker daemon socket' );
+ok( has_rule('modprobe /lib/modules/5.10/nvme.ko', 'SensitiveAccess'), 'kernel module path' );
+ok( has_rule('ls ~/Library/Keychains/login.keychain-db', 'SensitiveAccess'), 'macOS Keychain' );
+ok( has_rule('ls ~/.config/google-chrome/Default/Bookmarks', 'SensitiveAccess'), 'Chrome profile' );
+ok( has_rule('ls ~/.config/chromium/Default',      'SensitiveAccess'), 'Chromium profile' );
+ok( has_rule('ls ~/.mozilla/firefox/profiles.ini', 'SensitiveAccess'), 'Firefox profile' );
+ok( has_rule('ls ~/.cache/google-chrome/Default',   'SensitiveAccess'), 'Chrome cache' );
+ok( has_rule('cat /etc/gshadow',                   'SensitiveAccess'), 'group shadow file' );
+ok( has_rule('cat /proc/1234/environ',              'SensitiveAccess'), 'process environ' );
+
 # --- EnvDangerousVars: coverage -----------------------------------------
 
 ok( has_rule('LD_PRELOAD=/x.so ls',                 'EnvDangerousVars'), 'LD_PRELOAD' );

@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::SensitiveAccess;
 # ABSTRACT: Detect access to sensitive files and directories
-our $VERSION = '0.004';
+our $VERSION = '0.005';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';
@@ -18,9 +18,9 @@ introspection-sensitive paths. Severity scales with sensitivity:
 
 =over 4
 
-=item high   - C</etc/shadow>, C</etc/sudoers>, C<~/.ssh/>, C<~/.aws/>, C<~/.kube/>
+=item high   - C</etc/shadow>, C</etc/sudoers>, C<~/.ssh/>, C<~/.aws/>, C<~/.kube/>, C<~/.docker/config.json>, C<~/.gnupg/private-keys>, C<~/.git-credentials>, C<~/.netrc>, C<~/.pypirc>, C<~/.npmrc>, C<~/.cargo/credentials>, gcloud / Azure / gh configs, C<~/.pgpass>, C</var/run/docker.sock>, C</lib/modules/>, macOS C</Library/Keychains/>, browser profile dirs
 
-=item medium - C</etc/passwd>, C</etc/group>, C</proc/self/>, C</sys/fs/>
+=item medium - C</etc/passwd>, C</etc/group>, C</etc/gshadow>, C</proc/self/>, C</proc/[PID]/environ>, C</sys/fs/>
 
 =item low    - C</dev/> (often benign, but worth a glance)
 
@@ -52,12 +52,22 @@ my @SENSITIVE_PATTERNS = (
   [ qr{/\.pypirc},             'high',   'PyPI credentials access' ],
   [ qr{/\.npmrc},              'high',   'npm credentials access' ],
   [ qr{/\.cargo/credentials},  'high',   'Cargo credentials access' ],
-  [ qr{/google-cloud/},        'high',   'gcloud config access' ],
   [ qr{/\.azure/},             'high',   'Azure CLI config access' ],
   [ qr{/\.config/gh/},         'high',   'GitHub CLI config access' ],
-  [ qr{/\.docker/config\.json}, 'high',   'Docker daemon config access' ],
-  [ qr{/gcloud/},              'high',   'gcloud config access' ],
   [ qr{/\.config/gcloud/},     'high',   'gcloud config access' ],
+  [ qr{/\.pgpass},             'high',   'PostgreSQL password file access' ],
+  # high — container / daemon control surfaces
+  [ qr{/var/run/docker\.sock}, 'high',   'Docker daemon socket access' ],
+  # high — kernel / module surfaces
+  [ qr{/lib/modules/},         'high',   'Kernel module path access' ],
+  # high — macOS Keychain
+  [ qr{/Library/Keychains/},   'high',   'macOS Keychain access' ],
+  [ qr{/\.Trash/.*Keychain},   'high',   'macOS Keychain in Trash access' ],
+  # high — browser credential stores
+  [ qr{/\.config/google-chrome/}, 'high', 'Chrome profile access' ],
+  [ qr{/\.config/chromium/},      'high', 'Chromium profile access' ],
+  [ qr{/\.mozilla/firefox/},      'high', 'Firefox profile access' ],
+  [ qr{/\.cache/google-chrome/},  'high', 'Chrome cache access' ],
   # medium — system DBs and introspection
   [ qr{/etc/passwd},           'medium', 'Password database access' ],
   [ qr{/etc/group},            'medium', 'Group database access' ],
