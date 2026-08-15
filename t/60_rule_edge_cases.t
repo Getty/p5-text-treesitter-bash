@@ -88,6 +88,14 @@ ok( has_rule('echo $NAME.txt',                  'UnquotedExpansion'), 'unquoted 
 ok(!has_rule('echo "$HOME"',                    'UnquotedExpansion'), 'quoted var does not trigger' );
 ok(!has_rule('echo done',                       'UnquotedExpansion'), 'no var, no trigger' );
 
+# --- UnquotedExpansion: brace and arithmetic forms (2.5.10) -----------
+
+ok( has_rule('cat ${HOME}/.ssh/id_rsa',         'UnquotedExpansion'), '${HOME} brace form triggers' );
+ok( has_rule('rm -rf ${TMPDIR}/cache',          'UnquotedExpansion'), '${TMPDIR} brace form triggers' );
+ok( has_rule('cat ${var:-default}/file',        'UnquotedExpansion'), '${var:-default} brace-default triggers' );
+ok( has_rule('cat $((1+2))/foo',                'UnquotedExpansion'), '$((expr)) arithmetic triggers' );
+ok(!has_rule('echo "${HOME}/path"',             'UnquotedExpansion'), 'quoted ${HOME} does not trigger' );
+
 # --- MissingAbsolutePath ------------------------------------------------
 
 ok(!has_rule('/usr/bin/rm -rf /tmp/x', 'MissingAbsolutePath'), 'absolute path OK' );

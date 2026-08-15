@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::UnquotedExpansion;
 # ABSTRACT: Detect unquoted variable expansions that could split
-our $VERSION = '0.004';
+our $VERSION = '0.005';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';
@@ -39,16 +39,39 @@ sub check {
   my $source = $command->{source} // '';
 
   my @unquoted_vars;
-  while ( $source =~ m{(\$[a-zA-Z_][a-zA-Z0-9_]*)}g ) {
-    my $var   = $1;
-    my $start = pos($source) - length($var);
 
-    # Skip expansions inside double-quotes — those do NOT word-split.
-    # Walk the source left of $var and toggle a flag on each `"`.
-    # Single-quoted regions are tracked separately and reset the toggle.
+  # Match all three bash expansion forms:
+  #   $NAME            simple variable
+  #   ${NAME[...]...}  braced variable (also ${NAME:-default}, ${NAME/pat/repl}, ...)
+  #   $((expr))        arithmetic expansion
+  # Each branch captures its own leading sigil so the reported `var`
+  # field matches the source text the user sees (e.g. C<$bar>,
+  # C<${HOME}>, C<$((1+2))>).
+  my $rx = qr/
+    (\$
+    (?:
+        \{[a-zA-Z_][a-zA-Z0-9_]*[^}]*\}
+      | \(\(.+?\)\)
+      | [a-zA-Z_][a-zA-Z0-9_]*
+    ))
+  /x;
+
+  while ( $source =~ m{$rx}g ) {
+    my $var  = $1 // next;
+    my $end  = pos($source);
+    # Position of the leading `$` in the match. For the three forms:
+    #   $NAME        -> length of match - length of NAME - 1
+    #   ${NAME...}   -> length of match - length of ${NAME...} = 0
+    #   $((expr))    -> length of match - length of $((expr)) = 0
+    my $head = $end - length($var);
+
+    # Skip expansions inside double- or single-quotes — those do NOT
+    # word-split. Walk the source left of the `$` and toggle a flag on
+    # each `"` / `'`. Backslash-escapes a quote inside a non-single-quoted
+    # region.
     my $in_dq = 0;
     my $in_sq = 0;
-    for my $i ( 0 .. $start - 1 ) {
+    for my $i ( 0 .. $head - 1 ) {
       my $ch = substr( $source, $i, 1 );
       if    ( $ch eq "'" && !$in_dq ) { $in_sq = !$in_sq; }
       elsif ( $ch eq '"' && !$in_sq ) { $in_dq = !$in_dq; }
@@ -56,7 +79,11 @@ sub check {
     }
     next if $in_dq || $in_sq;
 
-    my $after = substr( $source, $start + length($var), 1 );
+    # The character right after the WHOLE expansion (after `}` for
+    # `${NAME}`, after `))` for `$((...))`, after the bare name for
+    # `$NAME`) determines whether this is a path-context expansion —
+    # the classic word-splitting + glob footgun shape.
+    my $after = substr( $source, $end, 1 );
     if ( defined $after && $after =~ m{[/\-\.]} ) {
       push @unquoted_vars, $var;
     }
