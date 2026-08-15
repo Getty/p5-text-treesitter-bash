@@ -176,6 +176,14 @@ recurses into itself with a pipe or background operator
 (C<high>). C<bash -c '...'> wrappers are out of scope here — they
 should be caught by C<dynamic_shell> / C<shell_interpreter>.
 
+=item L<Text::Treesitter::Bash::Security::Rule::PrivilegeEscalation>
+
+Detects C<sudo> / C<doas> / C<pkexec> invocations that open a root
+shell (positional shell name, C<su>, or C<-i>/C<-s>/C<--login>
+flag), C<su> to a privileged user, SetUID / SetGID via C<chmod>
+(either symbolic C<u+s> / C<g+s> / C<+s> or numeric C<4755> /
+C<2755> / C<6755>) — C<high>; C<systemd-run --user --scope> — C<medium>.
+
 =back
 
 =head1 WRITING YOUR OWN RULE

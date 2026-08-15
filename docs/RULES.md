@@ -30,6 +30,9 @@ One page per shipped rule, plus a top-level mapping. This is the operational ref
 | One-liner web server (`python -m http.server`)       | NetworkListener         | medium   |
 | PHP built-in server bound to localhost               | NetworkListener         | low      |
 | Classic fork-bomb (`:(){ :|:& };:`)                  | ForkBomb                | high     |
+| `sudo` / `doas` / `pkexec` opening a root shell       | PrivilegeEscalation     | high     |
+| SetUID / SetGID via `chmod u+s` / `chmod 4755`        | PrivilegeEscalation     | high     |
+| `systemd-run --user --scope`                          | PrivilegeEscalation     | medium   |
 
 ## `PathTraversal`
 
@@ -337,4 +340,40 @@ Examples:
     fork(){ (fork &) }; fork                 -> high
     harmless(){ echo hi; }; harmless         -> (not flagged)
     alias ll='ls -la'                        -> (not flagged)
+
+### `PrivilegeEscalation`
+
+`lib/Text/Treesitter/Bash/Security/Rule/PrivilegeEscalation.pm`
+
+Detects patterns that grant elevated capabilities, set up persistent
+privilege escalation, or invoke a privileged environment.
+
+| Pattern | Severity |
+|---------|----------|
+| `sudo su`, `sudo -i`, `sudo -s`, `sudo --login` | high |
+| `sudo bash`, `sudo /bin/bash`, `doas bash`, `pkexec /bin/bash` | high |
+| `su -`, `su - root`, `su root` | high |
+| `chmod u+s`, `chmod g+s`, `chmod +s` (symbolic) | high |
+| `chmod 4755`, `chmod 2755`, `chmod 6755` (numeric special bits) | high |
+| `systemd-run --user --scope`, `systemd-run --user=...` | medium |
+
+The numeric-mode check inspects the leading octal digit:
+1=sticky, 2=SetGID, 4=SetUID, 3=sticky+SetGID, 5=sticky+SetUID,
+6=SetUID+SetGID, 7=all. A 3-digit mode like `755` is normalised to
+`0755` (no special bits) and therefore not flagged.
+
+Examples:
+
+    sudo su -                                   -> high
+    sudo -i                                     -> high
+    sudo bash                                   -> high
+    su -                                        -> high
+    doas /bin/sh                                -> high
+    pkexec /bin/bash                            -> high
+    chmod u+s /usr/local/bin/x                  -> high
+    chmod 4755 /tmp/x                           -> high
+    systemd-run --user --scope                  -> medium
+    sudo ls /root                               -> (not flagged)
+    chmod 755 /tmp/x                            -> (not flagged)
+    chown root:root /tmp/x                      -> (not flagged)
 

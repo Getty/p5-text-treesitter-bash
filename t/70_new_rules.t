@@ -216,4 +216,68 @@ ok(!has_fb('greet(){ echo "hi $1"; }; greet world'),                 'normal fun
 ok(!has_fb('echo hello'),                                            'plain echo does NOT trigger' );
 ok(!has_fb('alias ll=ls'),                                           'alias does NOT trigger' );
 
+# --- PrivilegeEscalation ---------------------------------------------
+
+my $pr_checker = Text::Treesitter::Bash::Security::Checker->new(
+  rules => [qw(PrivilegeEscalation)],
+);
+
+sub has_pr {
+  my ( $source ) = @_;
+  my @issues = $pr_checker->check_source($source);
+  return scalar( grep { $_->{rule} eq 'PrivilegeEscalation' } @issues );
+}
+
+sub pr_severity {
+  my ( $source ) = @_;
+  my @issues = $pr_checker->check_source($source);
+  my ($i) = grep { $_->{rule} eq 'PrivilegeEscalation' } @issues;
+  return $i ? $i->{severity} : undef;
+}
+
+# sudo / doas / pkexec
+ok( has_pr('sudo su -'),                'sudo su -' );
+ok( has_pr('sudo -i'),                  'sudo -i root shell flag' );
+ok( has_pr('sudo -s'),                  'sudo -s root shell flag' );
+ok( has_pr('sudo --login'),             'sudo --login' );
+ok( has_pr('sudo bash'),                'sudo bash' );
+ok( has_pr('sudo /bin/bash'),           'sudo /bin/bash' );
+ok( has_pr('doas bash'),                'doas bash' );
+ok( has_pr('doas /bin/sh'),             'doas /bin/sh' );
+ok( has_pr('pkexec /bin/bash'),         'pkexec /bin/bash' );
+is( pr_severity('sudo bash'), 'high', 'sudo shell is high' );
+
+# su
+ok( has_pr('su -'),                     'su -' );
+ok( has_pr('su - root'),                'su - root' );
+ok( has_pr('su root'),                  'su root' );
+is( pr_severity('su -'), 'high', 'su is high' );
+
+# chmod SetUID / SetGID
+ok( has_pr('chmod u+s /usr/local/bin/x'),       'chmod u+s' );
+ok( has_pr('chmod g+s /tmp/x'),                 'chmod g+s' );
+ok( has_pr('chmod a+s /tmp/x'),                 'chmod a+s' );
+ok( has_pr('chmod +s /tmp/x'),                  'chmod +s (no selector)' );
+ok( has_pr('chmod 4755 /tmp/x'),                'chmod 4755 (SetUID)' );
+ok( has_pr('chmod 6755 /tmp/x'),                'chmod 6755 (SetUID+SetGID)' );
+ok( has_pr('chmod 2755 /tmp/x'),                'chmod 2755 (SetGID)' );
+is( pr_severity('chmod u+s /tmp/x'), 'high', 'chmod u+s is high' );
+
+# systemd-run user scope
+ok( has_pr('systemd-run --user --scope'),       'systemd-run --user --scope' );
+is( pr_severity('systemd-run --user --scope'), 'medium',
+    'systemd-run user/scope is medium' );
+
+# Negative cases.
+ok(!has_pr('sudo ls /root'),                    'sudo ls does NOT trigger' );
+ok(!has_pr('sudo apt update'),                  'sudo apt does NOT trigger' );
+ok(!has_pr('sudo /usr/bin/cat /etc/passwd'),    'sudo specific command does NOT trigger' );
+ok(!has_pr('systemctl daemon-reload'),          'systemctl does NOT trigger' );
+ok(!has_pr('chown root:root /tmp/x'),           'chown does NOT trigger' );
+ok(!has_pr('chmod 755 /tmp/x'),                 'plain chmod 755 does NOT trigger' );
+ok(!has_pr('chmod 644 /tmp/file'),              'chmod 644 does NOT trigger' );
+ok(!has_pr('chmod u+x /tmp/x'),                 'chmod +x does NOT trigger' );
+ok(!has_pr('echo hello'),                       'echo does NOT trigger' );
+ok(!has_pr('whoami'),                           'whoami does NOT trigger' );
+
 done_testing;

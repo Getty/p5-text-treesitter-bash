@@ -39,6 +39,7 @@ What the checker is **not**:
 | `InsecureDownload`     | high / medium | `curl -k`, `wget --no-check-certificate`, `--no-cert-check`; plaintext `http://` URLs |
 | `NetworkListener`      | high / medium / low | `nc -l`, `ncat -l`, `socat TCP-LISTEN`, `ssh -R` / `-D`; `python -m http.server`, `php -S`, `ruby -run -e httpd` |
 | `ForkBomb`             | high | `:(){ :|:& };:` and self-recursive variants with backgrounding |
+| `PrivilegeEscalation`  | high / medium | `sudo`/`doas`/`pkexec` opening root shell, `su` to user, `chmod` SetUID/SetGID, `systemd-run --user --scope` |
 | `SensitiveRedirect`    | high / medium / low | `>` into `/etc/...`, `/dev/sdX`, `~/.ssh/`, `~/.aws/`, `~/.kube/`, `~/.gnupg/`, `~/.bash_history`, `/var/log/`, etc. |
 
 ## Built-in `findings` (in `Text::Treesitter::Bash`)
@@ -70,6 +71,7 @@ my $checker = Text::Treesitter::Bash::Security::Checker->new(
         InsecureDownload
         NetworkListener
         ForkBomb
+        PrivilegeEscalation
     )],
 );
 ```
