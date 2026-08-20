@@ -1,6 +1,6 @@
 ---
 name: treesitter-bash-security
-description: Use when adding/changing bash security rules, walking the tree-sitter AST, or extending Text::Treesitter::Bash::Security::Rule::* - establishes the rule contract, walker quirks, and existing patterns to follow
+description: Use when adding or changing a bash security rule, walking the tree-sitter AST, or extending Text::Treesitter::Bash::Security::Rule::* — the rule contract and walker quirks.
 ---
 
 # Bash Security Rules — How to add one in this repo
@@ -89,7 +89,7 @@ sub check {
 ## Adding the rule
 
 1. Create `lib/Text/Treesitter/Bash/Security/Rule/YourRule.pm` following the contract above.
-2. Bump `$VERSION` in **all** files (`Bash.pm`, `Checker.pm`, all `Rule/*.pm`) to `0.003` (next-unreleased, see perl-core).
+2. Bump `$VERSION` in **all** files (`Bash.pm`, `Checker.pm`, all `Rule/*.pm`) to `0.003` (next-unreleased, see getty-perl-core).
 3. Add a test in `t/30_security.t` (one subtest per case, true + false positive where reasonable).
 4. Update `Changes` with the new rule.
 5. Update `docs/SECURITY-RESEARCH.md` or write a `docs/RULES.md` mapping rule → threat.
