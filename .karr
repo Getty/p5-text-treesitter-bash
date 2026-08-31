@@ -1,0 +1,6 @@
+claude: true
+prompt: >
+  Pick the next actionable ticket from this repo's karr board and drive it to review.
+  Delegate all behavior-relevant work (walker, Checker, Security::Rule::*, tests) to the
+  text-treesitter-bash-worker; run `prove -lv t/` to verify before handing off. Do not
+  run `dzil release`.
