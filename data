@@ -1,0 +1,13 @@
+---
+class: standard
+created: 2026-08-31T04:28:45Z
+id: 2
+priority: medium
+status: backlog
+tags:
+- rules
+title: 'False positives: regex rules match across quotes/whitespace'
+updated: 2026-08-31T04:28:45Z
+---
+
+EnvDangerousVars and UnquotedExpansion regex-match command->{source}; quotes and whitespace in the node source can produce false positives. See docs/CODE-ANALYSIS.md. Scope matching to per-command node source.
