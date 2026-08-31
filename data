@@ -1,0 +1,13 @@
+---
+class: standard
+created: 2026-08-31T04:28:56Z
+id: 3
+priority: low
+status: backlog
+tags:
+- tests
+title: No dedicated test for newline-as-semicolon operator
+updated: 2026-08-31T04:28:56Z
+---
+
+_operator_text treats a newline as an implicit `;`. Semantically fine but there is no dedicated test asserting it.
