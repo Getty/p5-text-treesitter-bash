@@ -1,0 +1,13 @@
+---
+class: standard
+created: 2026-08-31T04:29:00Z
+id: 4
+priority: low
+status: backlog
+tags:
+- rules
+title: '|& operator recognized but not special-cased in findings'
+updated: 2026-08-31T04:29:00Z
+---
+
+`|&` (pipe stderr+stdout) is in the operator set but findings does not treat it specially. Decide whether network->shell / pipe findings should account for it.
