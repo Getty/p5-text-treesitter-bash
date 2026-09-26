@@ -27,7 +27,7 @@ This rule depends on whether the Agent/Task tool is available to you.
 
 - **You can spawn subagents** (orchestrating main agent): Do NOT touch behavior-relevant
   code yourself — delegate to `text-treesitter-bash-worker`. Your lane: coordinate,
-  inspect, plan, review diffs, run tests, manage git, edit non-behavioral docs. When in
+  inspect, plan, review diffs, run tests, edit non-behavioral docs. When in
   doubt, delegate. Why: only the `text-treesitter-bash-*` agents get their skills
   force-loaded via `briefing.skills`; you get no briefing and would touch internals with
   too little context. Specialist lanes:
@@ -35,7 +35,7 @@ This rule depends on whether the Agent/Task tool is available to you.
   | Task | Agent |
   |---|---|
   | Implement / refactor / debug walker, Checker, or rules | `text-treesitter-bash-worker` (default) |
-  | Pre-release audit | `text-treesitter-bash-release-checker` |
+  | Commits, `Changes`, card → done, pre-release audit | `text-treesitter-bash-release-manager` |
 
 - **You cannot spawn subagents** (you ARE a `text-treesitter-bash-*` agent): The
   delegation lock does not apply — implement, refactor, debug, and test per these rules.
@@ -44,10 +44,13 @@ Behavior-relevant = the parser-walker, command extraction, `findings`, the secur
 `Checker`, the `Security::Rule::*` classes, their error handling, and the tests. Pure
 prose docs and `Changes` notes are not.
 
+**Only `text-treesitter-bash-release-manager` commits.** A worker leaves a commit-ready tree and hands its card
+to `review`; you then dispatch `text-treesitter-bash-release-manager` to cut the commit and close the card.
+
 ## Coordination — karr board (always in scope)
 
 Ticket coordination is the orchestrating agent's job, so `karr` is always in scope — just
-use it, no need to invoke the `kanban-issues-karr-cli` skill first. Git-native kanban;
+use it, no need to invoke the `kanban-issues-karr-coordination` skill first. Git-native kanban;
 state lives in `refs/karr/*`; this repo has its own board.
 
 - `karr list --compact` / `karr board` — open work · `karr show ID` — detail

@@ -26,7 +26,7 @@ principle and lane are in `.claude/rules/text-treesitter-bash-rules.md`.
 | Task | Agent |
 |---|---|
 | Implement / refactor / debug walker, Checker, or Security::Rule::* | `text-treesitter-bash-worker` (default) |
-| Pre-release audit | `text-treesitter-bash-release-checker` |
+| Commits, `Changes`, card → done, pre-release audit | `text-treesitter-bash-release-manager` |
 
 The agents carry their knowledge via `briefing.skills` (see `.claude/agents/`); the main
 agent delegates rather than loading them. Skill sources live under `.claude/skills/` —
