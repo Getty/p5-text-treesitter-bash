@@ -2,7 +2,6 @@
 name: text-treesitter-bash-release-manager
 description: "Owns text-treesitter-bash's commits and release readiness — cuts commits from the worker's commit-ready tree, writes commit messages and Changes entries, moves karr cards to done. Release audit: Text::Treesitter::Bash before release — cpanfile deps declared and pinned correctly, [@Author::GETTY] next-version strategy honoured, Changes current, dzil build clean. Workers never commit; this agent does. Never pushes, tags or releases."
 model: sonnet
-allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 briefing:
   skills:
     - getty-git-commit-style

@@ -2,7 +2,6 @@
 name: text-treesitter-bash-worker
 description: "Default Text::Treesitter::Bash worker — implement, refactor, debug, and test the bash parser-walker, the security Checker, and the Security::Rule::* classes in this distribution. Pre-loaded with the repo architecture, walker quirks, the rule contract, and Perl house conventions. Leaves a commit-ready tree; never commits — commits belong to text-treesitter-bash-release-manager."
 model: inherit
-allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 briefing:
   skills:
     - text-treesitter-bash-core
