@@ -34,6 +34,12 @@
     ParseError issue off (default: on)
   - POD: commands() documents that its result is best effort for
     unparsable source
+  - Fix Bash.pm: build the vendored grammar at most once per process
+    instead of once per instance, so every check_source call shares one
+    compiled tree-sitter-bash.so instead of copying ~10 MB and running
+    gcc each time. A build that vanishes (e.g. a forked child outliving
+    its parent) is rebuilt; a failed build is retried in the same
+    tempdir. Test: t/96_grammar_build_once.t
   - New rule: InsecureDownload (high/medium) — curl/wget/fetch with
     TLS verification disabled (-k, --insecure, --no-check-certificate,
     --no-cert-check) or plaintext http:// URLs. Skips URLs inside

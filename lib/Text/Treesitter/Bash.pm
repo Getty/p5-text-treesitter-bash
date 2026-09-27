@@ -298,7 +298,16 @@ findings are for.
 This distribution vendors the grammar in F<share/tree-sitter-bash/>. On
 first use, sources are copied into a C<File::Temp> directory and compiled
 via L<Text::Treesitter::Language::build>. Compilation is silent unless
-it fails; the resulting C<.so> lives in TMPDIR until CLEANUP.
+it fails. This happens at most once per process: every instance created
+without a C<lang_dir> (including the one behind each
+L<Text::Treesitter::Bash::Security::Checker/check_source> call) shares
+that build. The copied sources and the resulting C<.so> live in TMPDIR
+until the process that made them exits; should they vanish earlier (e.g.
+a forked child outliving its parent), the next instance makes a fresh
+copy. A failed build is retried in the same directory on the next use.
+
+With an explicit C<lang_dir>, the C<.so> is built into that directory
+if it is not already there, and reused from there.
 
 =head1 SEE ALSO
 
@@ -502,7 +511,7 @@ sub _treesitter {
 
   return $self->{_ts} if $self->{_ts};
 
-  my $lang_dir = $self->{lang_dir} // $self->_build_runtime_lang_dir;
+  my $lang_dir = $self->{lang_dir} // $self->_runtime_lang_dir;
   my $lang_lib = path($lang_dir)->child('tree-sitter-bash.so');
 
   if ( !-f $lang_lib ) {
@@ -524,6 +533,25 @@ sub _treesitter {
     lang_dir  => "$lang_dir",
     lang_lib  => "$lang_lib"
   );
+}
+
+# The vendored grammar is copied and compiled at most once per process;
+# every instance without an explicit lang_dir shares that build. It is
+# process-wide by nature: the tempdir is File::Temp's (removed at exit of
+# the process that made it) and the .so stays loaded until exit anyway.
+my $runtime_lang_dir;
+
+sub _runtime_lang_dir {
+  my ( $self ) = @_;
+
+  # Keyed on the copied sources, not the .so: after a failed build the
+  # dir is reused and _treesitter retries the build in place. Only a
+  # vanished dir gets a fresh copy: a forked child outliving the parent
+  # that cleaned it up, or a tmpfiles sweep in a long-running process.
+  return $runtime_lang_dir
+    if $runtime_lang_dir && -f $runtime_lang_dir->child( 'src', 'parser.c' );
+
+  return $runtime_lang_dir = $self->_build_runtime_lang_dir;
 }
 
 sub _build_runtime_lang_dir {
