@@ -1,0 +1,32 @@
+---
+class: standard
+completed: 2026-09-27T06:33:18Z
+created: 2026-09-27T06:09:03Z
+id: 6
+priority: high
+started: 2026-09-27T06:12:09Z
+status: done
+tags:
+- bug
+- performance
+title: Every check_source call rebuilds the grammar in a fresh tempdir; a long-running
+  process fills /tmp
+updated: 2026-09-27T06:33:18Z
+---
+
+Found 2026-09-27 while checking 68 recorded agent bash commands in one process: from call 37 on every check failed with 'copy failed for .../tree-sitter-bash/src/parser.c to /tmp/text-treesitter-bash-XXXX/src/parser.c: No space left on device' (Bash.pm:334); /tmp is a 3.9G tmpfs shared by the box.
+Cause: Security::Checker::check_source (Checker.pm:249) does Text::Treesitter::Bash->new per call; each instance runs _build_runtime_lang_dir (Bash.pm:313), copying the grammar into a new tempdir(CLEANUP => 1) and compiling the .so with Text::Treesitter::Language::build. Nothing is shared, so each check is a C compile, and the dirs are only removed at process exit.
+Reproduce: perl -Ilib -MText::Treesitter::Bash::Security::Checker -e 'my $c = Text::Treesitter::Bash::Security::Checker->new(rules => [qw(DangerousFlags)]); $c->check_source(q{ls -la}) for 1..80'
+Done when: the grammar is built once per process (or cached on disk keyed by grammar version) and reused across instances and check_source calls; a test runs check_source many times in one process and asserts a single build / no new tempdirs.
+
+2026-09-27 06:15 Reproduced on unfixed code (worktree k6-grammar-once, TMPDIR=private dir, Language::build wrapped with a counter): 4 check_source calls -> builds=1,2,3,4 and tempdirs=1,2,3,4, +13 MB per call; all removed only at process exit. Plan: cache the runtime lang dir per process in Bash.pm (file-scoped lexical, CLEANUP => 1 kept), explicit lang_dir untouched; re-validate cached dir with -d so a forked child whose parent already cleaned up rebuilds instead of failing.
+
+2026-09-27 06:24 Fix in Bash.pm: file-scoped $runtime_lang_dir + _runtime_lang_dir(); _treesitter uses it when no lang_dir given. Reused only while its tree-sitter-bash.so exists, else rebuilt: verified a naive //= cache breaks a forked child after the parent exits (File::Temp removes the parent's dir -> 'Expected a parser.c within ...'); with the -f guard the child rebuilds and cleans its own dir. Text::Treesitter object stays per instance: 1000 check_source calls after warm-up = 0.14 s total, RSS flat. New t/96_grammar_build_once.t: fails 4/4 on unfixed Bash.pm (reverted temporarily), subtest 4 also fails against the naive cache; passes with the fix.
+
+2026-09-27 06:25 Also found (docs drift, orchestrator's lane, not touched): CLAUDE.md:18-19, .claude/agents/text-treesitter-bash-worker.md:30-31, .claude/skills/text-treesitter-bash-core/SKILL.md:43-45 and .claude/rules/text-treesitter-bash-rules.md:78 say the compiled .so is cached across runs ('slow once, then cached', 'TMPDIR-cachable'). It never was: the tempdir is CLEANUP => 1, so every process compiles; after k6 exactly once per process. Also found: history bumps Bash.pm $VERSION per commit (0.002 -> 0.010 while only 0.001 is released); getty-perl-core only asks for next-unreleased, which 0.010 already is, so no bump here -- release manager's call.
+
+2026-09-27 06:26 Done: lib/Text/Treesitter/Bash.pm builds the vendored grammar at most once per process (file-scoped $runtime_lang_dir via new _runtime_lang_dir, reused while its .so exists, rebuilt if it vanished, e.g. forked child after parent exit); explicit lang_dir path unchanged; TREE-SITTER NOTES POD updated. New t/96_grammar_build_once.t (4 subtests: 20x check_source, 5x new instances, explicit lang_dir, vanished build) -- fails 4/4 on unfixed code, passes with fix. Card reproducer 80x: 1 build, 1 tempdir. nice prove -lv t/: 12 files, 414 tests, PASS, 0 skip/todo, 22 s; no /tmp/text-treesitter-bash-* or other new /tmp entries left. Uncommitted in worktree k6-grammar-once; Changes entry proposed in report, not written.
+
+2026-09-27 06:29 Follow-up (coordinator): _runtime_lang_dir now reuses the cached dir while src/parser.c is in it (was: while the .so is), so a failed build (broken toolchain) is retried in place by _treesitter instead of copying ~10 MB into a fresh tempdir per call; a vanished dir still gets a fresh copy. Comment + TREE-SITTER NOTES POD adjusted. New subtest 5 in t/96_grammar_build_once.t (stand-in build producing no .so, 3 calls each croak 'Failed to build', one tempdir after the first failure, then recovers in the same dir): failed against the .so-keyed version (2 of 9 asserts: extra tempdirs), passes now. nice prove -lv t/: 12 files, 415 tests, PASS, 0 skip/todo; no /tmp/text-treesitter-bash-* left. Stays in review.
+
+2026-09-27 06:33 Committed 889bda7 (branch k6-grammar-once): Bash.pm build-grammar-once fix + t/96_grammar_build_once.t + Changes entry. No $VERSION bump (already next-unreleased at 0.010 vs released 0.001; getty-perl-core only requires next-unreleased, already satisfied).
