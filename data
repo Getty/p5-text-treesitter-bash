@@ -1,0 +1,11 @@
+---
+class: standard
+created: 2026-09-27T06:34:12Z
+id: 7
+priority: low
+status: backlog
+title: Docs claim the compiled grammar is cached across runs
+updated: 2026-09-27T06:34:12Z
+---
+
+Found during k6 (889bda7). These say the compiled tree-sitter-bash.so is cached per machine / across runs ("slow once, then cached", "TMPDIR-cachable"): CLAUDE.md:18-19, .claude/agents/text-treesitter-bash-worker.md:30-31, .claude/skills/text-treesitter-bash-core/SKILL.md:43-45, .claude/rules/text-treesitter-bash-rules.md:78. That was never true (tempdir is CLEANUP => 1, so every process compiles); since k6 the build happens at most once per process and is shared by all instances / check_source calls. Done when: the four places describe once-per-process, no cross-run cache. Check whether the skill file is hardlinked/shared (manage-skills) before editing it.
