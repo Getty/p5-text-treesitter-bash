@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-09-27T06:33:32Z
+claimed_by: text-treesitter-bash-release-manager
+class: standard
+completed: 2026-09-27T06:33:25Z
+created: 2026-08-31T04:28:41Z
+id: 1
+priority: high
+started: 2026-09-27T06:33:25Z
+status: done
+tags:
+- convention
+title: Checker::check_source uses require instead of use
+updated: 2026-09-27T06:33:32Z
+---
+
+Security::Checker::check_source uses `require Text::Treesitter::Bash;` inside the method body — a getty-perl-core violation. Hoist to a top-level `use`.
+
+2026-09-27 06:33 already fixed by 1d73b7e
