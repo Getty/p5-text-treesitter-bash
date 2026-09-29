@@ -6,7 +6,6 @@ briefing:
   skills:
     - getty-git-commit-style
     - getty-perl-release-author-getty
-    - getty-perl-distribution
     - kanban-issues-karr-ticket
 ---
 
