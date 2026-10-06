@@ -81,7 +81,23 @@ clean, and never add a path that returns before they are appended.
 
 ## Walker logic (`_walk_node` / `_walk_children` / `_walk_command_children`)
 
-- Traverses top-down; ignores `command_name` (it is extracted as `command`).
+- Traverses top-down. Two walkers: the **statement walker** (`_walk_node` /
+  `_walk_children`) emits entries and reads operators; the **expression walker**
+  (`_walk_expression`) emits nothing, reads no operators (`|`, `||` in there are
+  arithmetic/test operators) and only hands `command_substitution` /
+  `process_substitution` back to the statement walker. Values go through the expression
+  walker: `command_name`, prefix and statement-level `variable_assignment`, the children
+  of `declaration_command` / `unset_command` / `test_command`, redirect targets, heredoc
+  bodies. A new place where Bash runs a substitution → `_walk_expression`, never a bare
+  `return` / `next`.
+- **Nested commands are listed behind the entry they sit in**, one substitution level
+  deeper. So `$commands->[-1]` is *not* "the previous command of this statement" — use
+  `_last_command_at_level` for operators and redirect owners, and never pair list
+  neighbours by index (`findings` scans back to the same level for `network_to_shell`).
+- `heredoc_redirect` carries what follows the heredoc operator on the same line:
+  arguments, redirects and — without left-hand side — the rest of a pipeline or list
+  (`cat <<EOF | sh`). `_walk_heredoc_redirect` walks those and wires them to the heredoc's
+  command.
 - Context is pushed on `pipeline | subshell | negated | command_substitution |
   process_substitution` nodes, so every command inside a pipeline carries
   `context => [..., 'pipeline']`.
@@ -165,6 +181,15 @@ Return a list for multiple issues; `Checker` flattens.
 
 ## Known gaps / traps
 
+- Opaque grammar tokens (no node, no ERROR — nothing to walk): backticks in heredoc
+  bodies, any substitution in a heredoc body starting with whitespace, backticks inside
+  `${…}`, substitutions in `${x#…}` / `%` / `^^` / `,,` patterns. Listed as `todo` in
+  `t/97_walker_coverage.t` and in the POD (`LIMITATIONS`).
+- Arguments and file redirects written *behind* a heredoc operator (`rm <<EOF -rf /`,
+  `cat <<EOF > /etc/passwd`) are not in `argv` / `redirects` — only substitutions in them
+  are walked.
+- Arguments still go through the statement walker, so an arithmetic `|` in an argument
+  (`echo $((1|2))`) leaks into the command's `after_op`.
 - Newline-as-`;` is recognized in `_operator_text` but has no dedicated test.
 - `|&` is in the operator set but `findings` does not special-case it.
 - `time` and `!`-negation before a command extract with `context => ['negated']`, but

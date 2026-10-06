@@ -101,6 +101,21 @@ with an empty name (C<curl x |>). C<commands> does not tell you that
 this happened — an empty or harmless-looking list is only meaningful
 together with an empty L</parse_errors>.
 
+B<Nested commands:> a command is returned wherever Bash executes one,
+not only where it is a statement of its own. Commands inside C<$(...)>,
+backticks and C<< <(...) >> / C<< >(...) >> are extracted from
+arguments, the command word (C<$(cmd) arg>), assignments (C<x=$(cmd)>,
+prefix assignments, arrays and subscripts), C<export> / C<declare> /
+C<local> / C<readonly> / C<typeset> / C<unset>, C<[ ]>, C<[[ ]]> and
+C<(( ))>, redirect targets and herestrings, C<case> subjects and
+patterns, parameter expansions (C<${x:-$(cmd)}>) and the body of a
+heredoc with an unquoted delimiter. The pipeline or list behind a
+heredoc operator (C<< cat <<EOF | sh >>, C<< cat <<EOF && cmd >>) is
+extracted as well. A nested command is listed B<behind> the entry of
+the statement it sits in and carries C<command_substitution> or
+C<process_substitution> in its C<context>. See L</LIMITATIONS> for
+what is not reached.
+
 Each command has:
 
 =over 4
@@ -137,6 +152,11 @@ undef at the start/end of the input. B<Note:> C<&> (background) is not
 emitted as C<after_op> — it is a background marker, not a sequence
 operator.
 
+Operators connect commands of the same level: in
+C<curl "$(hostname)" | sh> the C<|> is the C<after_op> of C<curl>, not
+of the nested C<hostname> listed between C<curl> and C<sh>. Do not pair
+neighbours of the returned list by position.
+
 =item redirects
 
 Arrayref of redirect nodes attached to the command. Each entry is a
@@ -145,6 +165,8 @@ C<heredoc_redirect>), C<operator> (e.g. C<< >= >>, C<< 2>& >>,
 C<< <<< >>), C<target> (the destination word for file_redirect /
 herestring, or the heredoc start marker for heredoc), and C<text>
 (the full raw text of the redirect). Empty array if no redirects.
+A redirect is recorded on the command it belongs to, not on a command
+substituted inside that command.
 
 =item negated
 
@@ -225,7 +247,10 @@ file in the current shell.
 =item network_to_shell
 
 A network fetcher (C<curl>, C<wget>, C<fetch>, C<aria2c>) piped into
-a shell interpreter. Classic "curl|sh" install vector.
+a shell interpreter. Classic "curl|sh" install vector. The fetcher may
+also sit in a substitution of the command in front of the pipe
+(C<echo "$(curl ...)" | sh>); C<commands> then holds that fetcher and
+the shell.
 
 =item parse_error
 
@@ -243,6 +268,30 @@ Filter the type out if you only want the pattern checks.
 =back
 
 For richer rules see L<Text::Treesitter::Bash::Security::Checker>.
+
+=head1 LIMITATIONS
+
+The walker can only descend where the vendored grammar (0.20.5) builds
+nodes. In these places Bash executes a substitution, but the grammar
+hands out one opaque token and reports no error, so C<commands>,
+C<findings> and the rules do not see the command inside:
+
+=over 4
+
+=item * backticks in a heredoc body (C<$(...)> there is seen);
+
+=item * any substitution in a heredoc body that starts with whitespace;
+
+=item * backticks inside C<${...}> (C<${x:-`cmd`}>);
+
+=item * substitutions in the pattern of C<${x#...}>, C<${x%...}>,
+C<${x^^...}>, C<${x,,...}>.
+
+=back
+
+Code handed over as a string (C<bash -c '...'>, C<eval "...">) is not
+parsed either; that is what the C<dynamic_shell> and C<shell_eval>
+findings are for.
 
 =head1 TREE-SITTER NOTES
 
@@ -341,20 +390,41 @@ sub findings {
   # perl 5.26..5.34 returned as the two-element list (1, 0). Guard
   # explicitly so behaviour is identical across versions.
   for my $index ( 1 .. scalar(@commands) - 1 ) {
-    my $left  = $commands[ $index - 1 ];
     my $right = $commands[$index];
 
     # `^\|` would also match `||` (OR), which is not a pipe. Anchor the
     # alternation explicitly to `|` and `|&` only.
-    next unless ( $left->{after_op} // '' ) =~ m/^\|(?:&)?\z/;
     next unless ( $right->{before_op} // '' ) =~ m/^\|(?:&)?\z/;
-    next unless _is_network_fetcher( _command_basename( $left->{command} ) );
     next unless _is_shell_interpreter( _command_basename( $right->{command} ) );
+
+    # The left-hand side of the pipe is the nearest earlier command on
+    # the same substitution level, not simply the previous entry: the
+    # commands of substitutions inside it are listed in between. What
+    # those fetch goes down the pipe as well (`echo "$(curl ...)" | sh`),
+    # so a fetcher among them counts like the left-hand side itself.
+    my $depth = _substitution_depth( $right->{context} );
+    my ( $left, $fetcher );
+
+    for ( my $before = $index - 1; $before >= 0; $before-- ) {
+      my $candidate       = $commands[$before];
+      my $candidate_depth = _substitution_depth( $candidate->{context} );
+
+      last if $candidate_depth < $depth;
+      $fetcher = $candidate
+        if _is_network_fetcher( _command_basename( $candidate->{command} ) );
+      next if $candidate_depth > $depth;
+
+      $left = $candidate;
+      last;
+    }
+
+    next unless $left && ( $left->{after_op} // '' ) =~ m/^\|(?:&)?\z/;
+    next unless $fetcher;
 
     push @findings, {
       type     => 'network_to_shell',
-      message  => "network command '$left->{command}' pipes into shell '$right->{command}'",
-      commands => [ $left, $right ]
+      message  => "network command '$fetcher->{command}' pipes into shell '$right->{command}'",
+      commands => [ $fetcher, $right ]
     };
   }
 
@@ -533,7 +603,10 @@ sub _walk_node {
     push @$commands, $entry;
     # The children of these node types are not commands themselves
     # (variable_assignment, variable_name, [[ ... ]], etc.) — recursing
-    # would produce duplicate entries.
+    # with the statement walker would produce duplicate entries. The
+    # substitutions in them are executed, though (`export X=$(cmd)`,
+    # `[[ $(cmd) == x ]]`).
+    $self->_walk_expression( $_, $context, $commands, $negated ) for $node->child_nodes;
     return;
   }
 
@@ -549,6 +622,8 @@ sub _walk_node {
       after_op   => undef,
       ( $negated ? ( negated => 1 ) : () ),
     };
+    # `x=$(cmd)`, `a=( $(cmd) )`, `a[$(cmd)]=1`: the assignment runs cmd.
+    $self->_walk_expression( $_, $context, $commands, $negated ) for $node->child_nodes;
     return;
   }
 
@@ -627,12 +702,18 @@ sub _walk_node {
       # Promote the source to include the redirect text so security rules
       # see the full statement (e.g. ": > /etc/passwd" or
       # "bash -i >& /dev/tcp/..."). Also collect any redirect targets
-      # so rules can match on file paths / destinations.
-      if (@$commands > $before) {
-        $commands->[-1]{source} = $node->text;
+      # so rules can match on file paths / destinations. The redirect
+      # belongs to the last command of the body itself, not to a command
+      # of a substitution inside it that happens to be listed last.
+      my $owner = $self->_last_command_at_level( $commands, $context, $before );
+      if ($owner) {
+        $owner->{source} = $node->text;
         for my $child ( $node->child_nodes ) {
-          $self->_collect_redirects( $child, $commands->[-1] );
+          $self->_collect_redirects( $child, $owner );
         }
+      }
+      for my $child ( $node->child_nodes ) {
+        $self->_walk_redirect( $child, $context, $commands, $negated );
       }
       return;
     }
@@ -653,9 +734,12 @@ sub _walk_children {
       if ( defined $operator ) {
         # & is a background marker, not a sequence operator — don't record
         # it as after_op. The next command, if any, still sees it as
-        # before_op via $pending_op.
-        $commands->[-1]{after_op} = $operator
-          if $operator ne '&' && @$commands;
+        # before_op via $pending_op. The operator follows the last command
+        # of this level; commands of substitutions inside that command
+        # are listed behind it and must not get it.
+        my $previous = $self->_last_command_at_level( $commands, $context );
+        $previous->{after_op} = $operator
+          if $operator ne '&' && $previous;
         $pending_op = $operator;
         $last_was_command = 0;
       }
@@ -666,9 +750,12 @@ sub _walk_children {
     # at the same level (including the implicit newline case). When the
     # previous sibling was a command and no operator was seen, treat the
     # gap as an implicit `;` and propagate it as the pending before_op.
-    if ( $last_was_command && !defined $pending_op && @$commands ) {
-      if ( !defined $commands->[-1]{after_op} ) {
-        $commands->[-1]{after_op} = ';';
+    my $previous = $last_was_command && !defined $pending_op
+      ? $self->_last_command_at_level( $commands, $context )
+      : undef;
+    if ($previous) {
+      if ( !defined $previous->{after_op} ) {
+        $previous->{after_op} = ';';
       }
       $pending_op = ';';
     }
@@ -685,24 +772,130 @@ sub _walk_children {
 sub _walk_command_children {
   my ( $self, $node, $context, $commands, $negated ) = @_;
 
+  # The entry of this command. Commands nested in its children are
+  # pushed behind it, so `$commands->[-1]` stops being this command.
+  my $own = $commands->[-1];
+
   for my $child ( $node->child_nodes ) {
     next if !$child->is_named;
-    next if $child->type eq 'command_name';
-    # Prefix assignments (e.g. `LD_PRELOAD=x command`) are not separate
-    # commands — they belong to the containing command. Their text is
-    # already visible via the parent's source raw bytes.
-    next if $child->type eq 'variable_assignment';
+    # The command word and prefix assignments (e.g. `LD_PRELOAD=x
+    # command`) are not separate commands — they belong to the containing
+    # command and their text is already visible via the parent's source
+    # raw bytes. Substitutions in them are executed, though: `$(cmd)`,
+    # `"$(cmd)" arg`, `(( $(cmd) + 1 ))`, `X=$(cmd) command`.
+    if ( $child->type eq 'command_name' || $child->type eq 'variable_assignment' ) {
+      $self->_walk_expression( $child, $context, $commands, $negated );
+      next;
+    }
 
     if (   $child->type eq 'file_redirect'
       || $child->type eq 'herestring_redirect'
       || $child->type eq 'heredoc_redirect' )
     {
-      $self->_collect_redirects( $child, $commands->[-1] ) if @$commands;
+      $self->_collect_redirects( $child, $own ) if $own;
+      $self->_walk_redirect( $child, $context, $commands, $negated );
       next;
     }
 
     $self->_walk_node( $child, $context, $commands, undef, $negated );
   }
+}
+
+# Expression-level walk, for the parts of a statement that are values
+# rather than statements: assignment values, declaration arguments, test
+# expressions, redirect targets, the command word. It emits nothing
+# itself and reads no operators — `|` and `||` in there are arithmetic
+# or test operators, not shell operators. It only looks for the places
+# where Bash executes commands again and hands those back to the
+# statement walker.
+sub _walk_expression {
+  my ( $self, $node, $context, $commands, $negated ) = @_;
+
+  return unless $node->is_named;
+
+  if ( $node->type eq 'command_substitution' || $node->type eq 'process_substitution' ) {
+    $self->_walk_node( $node, $context, $commands, undef, $negated );
+    return;
+  }
+
+  $self->_walk_expression( $_, $context, $commands, $negated ) for $node->child_nodes;
+}
+
+# Commands a redirect executes: substitutions in the target of a
+# file_redirect or herestring_redirect (`> $(cmd)`, `< <(cmd)`,
+# `<<< "$(cmd)"`), and whatever hangs below a heredoc_redirect.
+sub _walk_redirect {
+  my ( $self, $node, $context, $commands, $negated ) = @_;
+
+  my $type = $node->type;
+
+  if ( $type eq 'heredoc_redirect' ) {
+    $self->_walk_heredoc_redirect( $node, $context, $commands, $negated );
+  }
+  elsif ( $type eq 'file_redirect' || $type eq 'herestring_redirect' ) {
+    $self->_walk_expression( $node, $context, $commands, $negated );
+  }
+}
+
+# tree-sitter-bash hangs everything that follows a heredoc operator on
+# the same line below the heredoc_redirect node instead of beside the
+# statement: further arguments and redirects of the command, and —
+# without their left-hand side — the rest of a pipeline
+# (`cmd <<EOF | next`) or list (`cmd <<EOF && next`). The statement
+# walker never meets those as siblings of the command, so they are
+# walked from here. The command the heredoc belongs to is the last
+# command of this level at that point; it becomes the left-hand
+# neighbour of what follows.
+sub _walk_heredoc_redirect {
+  my ( $self, $node, $context, $commands, $negated ) = @_;
+
+  my $pending_op;
+
+  for my $child ( $node->child_nodes ) {
+    if ( !$child->is_named ) {
+      my $operator = $child->text;
+      next unless $operator eq '&&' || $operator eq '||';
+      my $previous = $self->_last_command_at_level( $commands, $context );
+      $previous->{after_op} = $operator if $previous;
+      $pending_op = $operator;
+      next;
+    }
+
+    if ( $child->type eq 'pipeline' ) {
+      # Starts with the `|` / `|&` itself; _walk_children attaches it to
+      # the last command of this level and to the command that follows.
+      $self->_walk_node( $child, $context, $commands, undef, $negated );
+    }
+    elsif ( defined $pending_op ) {
+      $self->_walk_node( $child, $context, $commands, $pending_op, $negated );
+    }
+    else {
+      # heredoc_body (holds substitutions only if the delimiter is
+      # unquoted — a quoted one makes the body literal text), arguments
+      # and redirect targets behind the heredoc operator.
+      $self->_walk_expression( $child, $context, $commands, $negated );
+    }
+    $pending_op = undef;
+  }
+}
+
+# The most recent command on the substitution level of $context, looking
+# back no further than index $from. Commands of substitutions inside a
+# command are listed behind it; they are one level deeper and skipped.
+# Nothing is returned once the list is back on a shallower level — that
+# command belongs to the statement around this substitution.
+sub _last_command_at_level {
+  my ( $self, $commands, $context, $from ) = @_;
+
+  my $depth = _substitution_depth($context);
+
+  for ( my $index = $#$commands; $index >= ( $from // 0 ); $index-- ) {
+    my $entry_depth = _substitution_depth( $commands->[$index]{context} );
+    return $commands->[$index] if $entry_depth == $depth;
+    return if $entry_depth < $depth;
+  }
+
+  return;
 }
 
 # Extract structured redirect information from a file_redirect,
@@ -880,6 +1073,12 @@ sub _argv_from_simple_children {
   $name //= q{};
   $name = _clean_word($name);
   return ( $name, @argv );
+}
+
+sub _substitution_depth {
+  my ( $context ) = @_;
+
+  return scalar grep { $_ eq 'command_substitution' || $_ eq 'process_substitution' } @$context;
 }
 
 sub _first_child_text {

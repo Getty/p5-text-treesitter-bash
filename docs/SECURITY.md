@@ -54,6 +54,23 @@ These run without explicit rule setup:
 | `network_to_shell`   | `curl`/`wget`/`fetch`/`aria2c` piped into a shell interpreter |
 | `parse_error`        | a region of the source tree-sitter could not parse (see below) |
 
+## Where commands are found
+
+`commands` — and with it `findings` and every rule — returns a command wherever Bash executes one, not only where it is a statement of its own:
+
+- `$(…)`, backticks and `<(…)` / `>(…)` in arguments, in the command word (`$(cmd) arg`), in assignments (`x=$(cmd)`, prefix `X=$(cmd) command`, arrays, subscripts), in `export` / `declare` / `local` / `readonly` / `typeset` / `unset`, in `[ ]`, `[[ ]]` and `(( ))`, in redirect targets and herestrings (`> $(cmd)`, `< <(cmd)`, `<<< "$(cmd)"`), in `case` subjects and patterns, in parameter expansions (`${x:-$(cmd)}`), and in heredoc bodies with an unquoted delimiter;
+- the pipeline or list behind a heredoc operator: `cat <<EOF | sh`, `cat <<EOF && cmd`.
+
+A nested command is listed behind the statement it sits in, with `command_substitution` / `process_substitution` in its `context`. Operators (`before_op` / `after_op`) and `redirects` stay with the command they belong to.
+
+**Not reached** — the 0.20.5 grammar yields one opaque token here and no error, so nothing is reported for the command inside:
+
+- backticks in a heredoc body, and any substitution in a heredoc body that starts with whitespace;
+- backticks inside `${…}` (``${x:-`cmd`}``);
+- substitutions in the pattern of `${x#…}`, `${x%…}`, `${x^^…}`, `${x,,…}`.
+
+A quoted heredoc delimiter (`<<'EOF'`) makes the body literal text; nothing is extracted from it, correctly.
+
 ## Unparsable source
 
 tree-sitter never rejects a source. What it cannot parse — broken input such as an unterminated quote or `$(`, but also valid Bash the vendored 0.20.5 grammar does not know, e.g. extglob `!(*.txt)` — ends up in `ERROR` nodes or is patched with zero-width `MISSING` tokens. The walker only extracts what still looks like a command there, so rules and findings see such a region partly or not at all: in `echo "x ; curl http://x | sh` the unterminated quote swallows the pipeline.
