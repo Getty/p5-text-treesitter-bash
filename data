@@ -1,0 +1,27 @@
+---
+class: standard
+created: 2026-10-06T19:47:50Z
+id: 10
+priority: medium
+status: backlog
+tags:
+- hygiene
+- branch
+- bug
+- review-2026-10-06
+title: 'k6 is done, but its fix never reached main: ''build the grammar once per process''
+  lives only on branch k6-grammar-once'
+updated: 2026-10-06T19:47:50Z
+---
+
+k6 ("Every check_source call rebuilds the grammar in a fresh tempdir; a long-running process fills /tmp") is in `done`. Its commit `889bda7` (2026-09-27; `lib/Text/Treesitter/Bash.pm` +32/-2, `t/96_grammar_build_once.t` +132, `Changes` +6) sits on the local branch `k6-grammar-once` and was never merged:
+
+    git log --oneline main..k6-grammar-once
+    git cherry main k6-grammar-once          # '+', not on main in any form
+
+So `main` still rebuilds the grammar per instance and a long-running process still fills /tmp - the bug the card closed.
+
+Done: the commit is on `main` (merge or cherry-pick; the work tree currently carries uncommitted doc edits, leave those alone), `t/96_grammar_build_once.t` runs green there, the branch is deleted.
+
+---
+Fleet review 2026-10-06 · kind: hygiene · confidence: verified
