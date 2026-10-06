@@ -1,0 +1,38 @@
+---
+class: standard
+created: 2026-10-06T19:47:45Z
+id: 9
+priority: medium
+status: backlog
+tags:
+- bug
+- security
+- findings
+- review-2026-10-06
+title: 'Shell detection sees only the literal command word: wrappers and escaped names
+  slip through'
+updated: 2026-10-06T19:47:45Z
+---
+
+`findings()` (`lib/Text/Treesitter/Bash.pm:224-282`) classifies by `_command_basename($command->{command})`, the first word of the command, cleaned by `_clean_word` (`:764-776`), which only strips quotes that surround the whole word.
+
+1. Wrapper commands are not unwrapped. For `curl URL | sudo bash` the right-hand command is `sudo`, so neither `shell_interpreter` nor `network_to_shell` (`:268-271`, requires the right side to *be* a shell) fires. Same for `env bash -c ...`, `exec sh`, `nohup sh`, `command bash`, `time bash`, `xargs sh -c`. `grep -n 'sudo\|nohup\|xargs' lib/Text/Treesitter/Bash.pm` finds nothing. The `PrivilegeEscalation` rule does flag `sudo bash` (`t/70_new_rules.t:243`), but as a privilege finding, and only for sudo/doas/pkexec; the `curl | sudo bash` pattern as such is not recognised.
+
+2. Partly quoted or escaped names are not normalised, although bash runs them as the plain name:
+
+    perl -Ilib -MText::Treesitter::Bash -e 'my $b=\&Text::Treesitter::Bash::_command_basename; my $s=\&Text::Treesitter::Bash::_is_shell_interpreter;
+      printf "%-9s shell=%d\n", $_, $s->($b->($_))?1:0 for q{\bash}, q{b"a"sh}, q{"bash"}, q{/bin/bash}, q{$SHELL}'
+    # \bash 0 | b"a"sh 0 | "bash" 1 | /bin/bash 1 | $SHELL 0
+
+   A command word that is an expansion (`$SHELL -c ...`, `${cmd}`, `$(which sh)`) cannot be resolved statically, but it is not flagged as unresolvable either.
+
+Part 2 is measured on the helpers; part 1 follows from the code and was not run through the parser (the grammar build was out of scope for this review).
+
+Done when:
+- the classifier looks through the usual prefix commands (sudo/doas with their options, env with assignments, exec, nohup, command, time, nice, xargs, busybox is already there) to the command they run, for `shell_interpreter`, `dynamic_shell` and `network_to_shell`;
+- command names are compared after shell quote removal (backslashes and inner quotes);
+- a command word that is a pure expansion yields its own finding type, so a caller can treat it as unknown rather than harmless;
+- tests cover `curl x | sudo bash`, `env bash -c id`, `\bash -c id`, `$SHELL -c id`.
+
+---
+Fleet review 2026-10-06 · kind: bug · confidence: verified
