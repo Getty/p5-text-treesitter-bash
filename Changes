@@ -1,5 +1,19 @@
 {{$NEXT}}
 
+  - Source tree-sitter cannot parse is reported instead of passing as
+    harmless. findings() appends one `parse_error` finding per
+    unparsable region (unterminated quote, `$(` without `)`, stray
+    token, Bash the 0.20.5 grammar does not know such as `!(*.txt)`),
+    with message, start_byte / end_byte, source and - where the parser
+    had to make up a token - missing. Security::Checker->check_source
+    appends the same as an issue with rule `ParseError`, severity
+    `high`. Findings and issues from the parsable parts are unchanged
+  - New method parse_errors($source) returning those regions on their
+    own
+  - Security::Checker->new accepts `parse_errors => 0` to switch the
+    ParseError issue off (default: on)
+  - POD: commands() documents that its result is best effort for
+    unparsable source
   - New rule: InsecureDownload (high/medium) — curl/wget/fetch with
     TLS verification disabled (-k, --insecure, --no-check-certificate,
     --no-cert-check) or plaintext http:// URLs. Skips URLs inside

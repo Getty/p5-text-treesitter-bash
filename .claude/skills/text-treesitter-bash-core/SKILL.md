@@ -17,12 +17,13 @@ Perl house conventions (`use` vs `require`, `$VERSION` = next, cpanfile pinning,
 ```
 Text::Treesitter::Bash
 ├── parse($source)              -> Text::Treesitter::Tree
-├── commands($source)           -> [@Command]      # walked AST
-└── findings($source)           -> [@Finding]      # policy-light checks
+├── commands($source)           -> [@Command]      # walked AST, best effort on unparsable source
+├── parse_errors($source)       -> [@ParseError]   # ERROR / MISSING regions
+└── findings($source)           -> [@Finding]      # policy-light checks + parse errors
 
 Text::Treesitter::Bash::Security::Checker
 ├── new(rules => [@RuleClass | $instance])
-├── check_source($source)       -> [@Issue]        # parse + check
+├── check_source($source)       -> [@Issue]        # parse + check + ParseError issues
 └── check_commands(@Command)    -> [@Issue]        # rules only
 
 Text::Treesitter::Bash::Security::Rule          (abstract base)
@@ -62,9 +63,21 @@ Key files:
 # Finding (findings returns HashRefs):
 { type => 'shell_interpreter' | 'dynamic_shell' | 'shell_eval' | 'network_to_shell', ... }
 
+# ParseError (parse_errors returns HashRefs; findings appends them last):
+{ type => 'parse_error', message => ..., source => '"oops', start_byte => 5, end_byte => 10,
+  missing => ')' }                   # missing only for a made-up token; then start == end, source ''
+
 # Issue (Security::Checker returns HashRefs):
 { rule => 'DangerousFlags', severity => 'high' | 'medium' | 'low', message => ..., ... }
 ```
+
+**Unparsable source fails closed.** tree-sitter never rejects input; it leaves `ERROR`
+nodes or zero-width `MISSING` tokens, and the walker extracts only what still looks like
+a command. `findings` and `check_source` therefore append every such region
+(`parse_error` finding / `rule => 'ParseError'`, always `high`, no rule class behind it;
+`Checker->new( parse_errors => 0 )` switches it off). "Empty list" must keep meaning
+"parsed completely, nothing matched" — never drop these entries to make a result look
+clean, and never add a path that returns before they are appended.
 
 ## Walker logic (`_walk_node` / `_walk_children` / `_walk_command_children`)
 

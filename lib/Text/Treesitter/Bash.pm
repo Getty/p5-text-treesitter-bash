@@ -52,10 +52,14 @@ including argv, source span, the enclosing shell context (pipeline,
 subshell, negated, ...) and the surrounding operators (C<&&>, C<||>,
 C<|>, C<|&>, C<;>, newline).
 
+=item * C<parse_errors> - returns the regions of the source tree-sitter
+could not parse.
+
 =item * C<findings> - convenience policy-light checks built on top of
 C<commands>: shell-interpreters, dynamic-evaluation flags
 (C<bash -c>, C<perl -e>, ...), C<eval>/C<source>/C<.>, and
-network-fetch piped into shell.
+network-fetch piped into shell. Unparsable regions are reported as
+C<parse_error> findings.
 
 =back
 
@@ -78,13 +82,26 @@ this distribution's share dir.
     my $tree = $bash->parse( $source );
 
 Parses C<$source> and returns a L<Text::Treesitter::Tree>. Croaks if C<$source>
-is undef.
+is undef, is not valid UTF-8 or contains a NUL byte.
+
+A syntax error does B<not> croak: tree-sitter always returns a tree and
+marks what it could not parse, see L</parse_errors>.
 
 =head2 commands
 
     my @commands = $bash->commands( $source );
 
-Returns a list of command hashrefs. Each command has:
+Returns a list of command hashrefs.
+
+B<Unparsable source:> the list is best effort. Commands tree-sitter
+still recognised inside or next to an unparsable region are returned as
+usual; text it could not shape into a command is dropped silently, and
+a construct the parser had to complete on its own may yield a command
+with an empty name (C<curl x |>). C<commands> does not tell you that
+this happened — an empty or harmless-looking list is only meaningful
+together with an empty L</parse_errors>.
+
+Each command has:
 
 =over 4
 
@@ -139,13 +156,54 @@ match on this rather than the C<'negated'> context string.
 =back
 
 
+=head2 parse_errors
+
+    my @errors = $bash->parse_errors( $source );
+
+Returns one hashref per region of C<$source> that tree-sitter could not
+parse, in source order; the empty list if the source parsed cleanly.
+This covers broken input (unterminated quote, C<$(> without C<)>) as
+well as valid Bash the vendored grammar does not know, e.g. extglob
+patterns like C<!(*.txt)>.
+
+=over 4
+
+=item type
+
+Always C<parse_error>.
+
+=item message
+
+Human-readable description including the position.
+
+=item start_byte, end_byte
+
+Byte offsets of the region into the original source, C<end_byte>
+exclusive. Both are equal when a token is missing (see C<missing>).
+
+=item source
+
+Raw text of the region; empty when a token is missing.
+
+=item missing
+
+Only present when the parser had to make up a token to complete a
+construct: the token it expected at C<start_byte>, e.g. C<)> for an
+unterminated C<$(>.
+
+=back
+
+Nested errors are not listed separately; the outermost region is
+reported.
+
 =head2 findings
 
     my @findings = $bash->findings( $source );
 
 Runs a fixed set of policy-light checks and returns a list of hashrefs
-with C<type> and C<message> (and the offending command). Recognised
-C<type> values:
+with C<type> and C<message> (and the offending command). An empty list
+means the source was parsed completely and none of the checks matched.
+Recognised C<type> values:
 
 =over 4
 
@@ -168,6 +226,19 @@ file in the current shell.
 
 A network fetcher (C<curl>, C<wget>, C<fetch>, C<aria2c>) piped into
 a shell interpreter. Classic "curl|sh" install vector.
+
+=item parse_error
+
+Part of the source could not be parsed, so the checks above saw it only
+partly or not at all. One finding per region, appended after all other
+findings, with the fields described under L</parse_errors>
+(C<start_byte>, C<end_byte>, C<source>, C<missing>) instead of a
+command. Findings from the parsable parts are still returned.
+
+A caller that reads "no findings" as "nothing to object to" must treat
+C<parse_error> as "cannot tell": C<echo "x ; curl http://x | sh> has no
+other finding because the unterminated quote swallows the pipeline.
+Filter the type out if you only want the pattern checks.
 
 =back
 
@@ -215,16 +286,25 @@ sub parse {
 sub commands {
   my ( $self, $source ) = @_;
 
-  my $tree = $self->parse($source);
-  my @commands;
-  $self->_walk_node( $tree->root_node, [], \@commands, undef );
-  return @commands;
+  return $self->_commands_from_tree( $self->parse($source) );
+}
+
+sub parse_errors {
+  my ( $self, $source ) = @_;
+
+  return $self->_parse_errors_from_tree( $self->parse($source) );
 }
 
 sub findings {
   my ( $self, $source ) = @_;
 
-  my @commands = $self->commands($source);
+  my $tree     = $self->parse($source);
+  my @commands = $self->_commands_from_tree($tree);
+  # tree-sitter never refuses a source. Whatever it could not parse is
+  # only partly visible to the checks below, so the unparsable regions
+  # are reported themselves: an empty list must keep meaning "nothing
+  # found in source that was fully read", never "nothing was readable".
+  my @parse_errors = $self->_parse_errors_from_tree($tree);
   my @findings;
 
   for my $command (@commands) {
@@ -255,7 +335,7 @@ sub findings {
     }
   }
 
-  return @findings if !@commands;
+  return ( @findings, @parse_errors ) if !@commands;
 
   # `for (1 .. $#commands)` on an empty list evaluates to `1..-1` which
   # perl 5.26..5.34 returned as the two-element list (1, 0). Guard
@@ -278,7 +358,73 @@ sub findings {
     };
   }
 
-  return @findings;
+  return ( @findings, @parse_errors );
+}
+
+sub _commands_from_tree {
+  my ( $self, $tree ) = @_;
+
+  my @commands;
+  $self->_walk_node( $tree->root_node, [], \@commands, undef );
+  return @commands;
+}
+
+# Collect the regions tree-sitter could not parse, in source order. Two
+# shapes exist: an ERROR node wraps text the grammar had no rule for,
+# and a zero-width MISSING node stands in for a token the parser made up
+# to finish a construct (the `)` of an unterminated `$(`). Iterative on
+# purpose: nesting depth is controlled by the source under inspection.
+sub _parse_errors_from_tree {
+  my ( $self, $tree ) = @_;
+
+  my $root = $tree->root_node;
+  return unless $root->has_error;
+
+  my @errors;
+  my @pending = ($root);
+
+  while ( my $node = shift @pending ) {
+    if ( $node->type eq 'ERROR' || $node->is_missing ) {
+      # Not descending: nested errors lie inside the span reported here.
+      push @errors, $self->_parse_error_entry($node);
+      next;
+    }
+    next unless $node->has_error;
+    unshift @pending, $node->child_nodes;
+  }
+
+  # has_error without a locatable node would otherwise fall back to
+  # "no finding" — report the whole source instead.
+  push @errors, $self->_parse_error_entry($root) unless @errors;
+
+  return @errors;
+}
+
+sub _parse_error_entry {
+  my ( $self, $node ) = @_;
+
+  my $start = $node->start_byte;
+  my $end   = $node->end_byte;
+
+  if ( $node->is_missing ) {
+    my $expected = $node->type;
+    return {
+      type       => 'parse_error',
+      message    => "source is incomplete at byte $start: expected '$expected' is missing, analysis is incomplete",
+      source     => q{},
+      missing    => $expected,
+      start_byte => $start,
+      end_byte   => $end
+    };
+  }
+
+  return {
+    type       => 'parse_error',
+    message    => "source could not be parsed at bytes $start to $end, analysis of this region is incomplete",
+    source     => $node->text,
+    start_byte => $start,
+    end_byte   => $end
+  };
 }
 
 sub _treesitter {

@@ -43,7 +43,8 @@ runs them over each parsed command. Two entry points:
 hashrefs (see L<Text::Treesitter::Bash/commands>).
 
 =item C<check_source($source)> - parses the source first, then runs
-the rules. Convenience wrapper.
+the rules, and reports source that could not be parsed as a
+C<ParseError> issue.
 
 =back
 
@@ -65,6 +66,11 @@ L<Module::Load>) or already-loaded class names or blessed rule
 instances. The order is preserved and is the order in which rules run
 per command.
 
+C<parse_errors> (default: on) controls whether C<check_source> reports
+unparsable source as C<ParseError> issues. Pass C<< parse_errors => 0 >>
+only if the caller evaluates
+L<Text::Treesitter::Bash/parse_errors> itself.
+
 =head2 check_commands
 
     my @issues = $checker->check_commands( @command_hashrefs );
@@ -85,15 +91,41 @@ issue hashrefs. Each issue has at least:
 
 Returns an empty list if nothing matched.
 
+C<check_commands> only knows the commands it is handed. Whether the
+source they came from was parsed completely is not visible here - use
+C<check_source>, or check L<Text::Treesitter::Bash/parse_errors>
+alongside.
+
 =head2 check_source
 
     my @issues = $checker->check_source( $bash_source );
 
 Parses C<$bash_source> via L<Text::Treesitter::Bash> and delegates to
-C<check_commands>. Equivalent to:
+C<check_commands>. For source that parses cleanly this is equivalent to:
 
     my @cmds = Text::Treesitter::Bash->new->commands($source);
     my @issues = $checker->check_commands(@cmds);
+
+tree-sitter does not reject a source it cannot parse; the rules then
+only see the commands that could still be extracted. So that such input
+never comes back as "no issues", every unparsable region (see
+L<Text::Treesitter::Bash/parse_errors>) is appended after the rule
+issues as:
+
+    {
+        rule       => 'ParseError',
+        severity   => 'high',
+        message    => 'source could not be parsed at bytes 5 to 31, ...',
+        source     => '"oops ; curl http://x | sh',
+        start_byte => 5,
+        end_byte   => 31,           # exclusive
+        missing    => ')',          # only if a token had to be made up
+    }
+
+C<ParseError> is not a rule class and cannot be listed in C<rules>; it
+is always C<high>, because nothing is known about what the region
+contains. Issues from the parsable parts are still returned. Switch it
+off with C<< parse_errors => 0 >> in L</new>.
 
 =head1 SHIPPED RULES
 
@@ -221,7 +253,10 @@ sub new {
     push @instances, $rule;
   }
 
-  return bless { rules => \@instances }, $class;
+  return bless {
+    rules        => \@instances,
+    parse_errors => $args{parse_errors} // 1
+  }, $class;
 }
 
 sub check_commands {
@@ -248,8 +283,33 @@ sub check_source {
 
   my $bash = Text::Treesitter::Bash->new;
   my @commands = $bash->commands($source);
+  my @issues   = $self->check_commands(@commands);
 
-  return $self->check_commands(@commands);
+  # The rules only ever see commands the walker could extract. Source
+  # tree-sitter could not parse is therefore reported on its own, or an
+  # unparsable input would come back as "no issues".
+  if ( $self->{parse_errors} ) {
+    push @issues, map { $self->_parse_error_issue($_) } $bash->parse_errors($source);
+  }
+
+  return @issues;
+}
+
+# Severity is `high` on purpose: nothing is known about the content of
+# an unparsable region, so it has to rank with the worst a rule could
+# have found there.
+sub _parse_error_issue {
+  my ( $self, $error ) = @_;
+
+  return {
+    rule       => 'ParseError',
+    severity   => 'high',
+    message    => $error->{message},
+    source     => $error->{source},
+    start_byte => $error->{start_byte},
+    end_byte   => $error->{end_byte},
+    ( defined $error->{missing} ? ( missing => $error->{missing} ) : () ),
+  };
 }
 
 1;
