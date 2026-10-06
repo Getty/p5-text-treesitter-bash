@@ -1,0 +1,36 @@
+---
+class: standard
+created: 2026-10-06T19:47:41Z
+id: 8
+priority: medium
+status: backlog
+tags:
+- bug
+- security
+- findings
+- review-2026-10-06
+title: 'dynamic_shell misses combined short flags: bash -lc, sh -ec, perl -le, python
+  -Bc'
+updated: 2026-10-06T19:47:41Z
+---
+
+`_is_dynamic_shell` (`lib/Text/Treesitter/Bash.pm:814-847`) compares whole argv elements:
+
+- shells: `grep { $_ eq '-c' }` (`:818`), so `-lc`, `-ec`, `-xc`, `-ic` are not seen;
+- perl: `m/^-[eEpni]|^-[pPnN][eE]\z/` (`:824`) needs the flag cluster to start with one of e/E/p/n/i, so `-le`, `-we`, `-lne`, `-0777e` are not seen;
+- python: `$_ eq '-c' || $_ eq '-m'` (`:842`), so `-Bc`, `-uc`, `-Sc` are not seen;
+- node: `--print` is missing next to `-p` (`:836`); ruby: `-ne`/`-pe` are missing (`:832`).
+
+Measured by calling the function directly (no grammar needed):
+
+    perl -Ilib -MText::Treesitter::Bash -e 'my $d=\&Text::Treesitter::Bash::_is_dynamic_shell;
+      printf "%-22s %d\n", "@$_", $d->($_->[0],$_)?1:0 for [qw(bash -lc id)],[qw(sh -ec id)],[qw(bash -c id)],
+        ["perl","-le","system q(id)"],[qw(perl -e 1)],["python3","-Bc","import os"],[qw(node --print 1)]'
+    # bash -lc id 0 | sh -ec id 0 | bash -c id 1 | perl -le ... 0 | perl -e 1 1 | python3 -Bc ... 0 | node --print 1 0
+
+`bash -lc '...'` is about the most common way an agent wraps a command, and `perl -le` the most common perl one-liner form. For the shells the `shell_interpreter` finding still fires, so the command is not invisible, but it is classified as a plain interpreter start instead of inline code; for perl/python/node/ruby nothing fires at all.
+
+Done when short-option clusters are parsed (any `-xyz` cluster containing the code flag: `c` for shells and python, `e`/`E` for perl, `e` for ruby/node), the long forms are covered, and `t/` has a table-driven test with the forms above. No test mentions `-lc` today.
+
+---
+Fleet review 2026-10-06 · kind: bug · confidence: verified
