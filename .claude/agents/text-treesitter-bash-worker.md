@@ -5,6 +5,7 @@ model: inherit
 briefing:
   skills:
     - text-treesitter-bash-core
+    - text-treesitter-bash-rules
     - getty-perl-core
     - kanban-issues-karr-ticket
 ---
@@ -14,8 +15,11 @@ around tree-sitter-bash 0.20.5 that parses bash, extracts commands, and runs a r
 security checker for AI-agent approval flows.
 
 Implement, refactor, debug, and test code in this distribution — the walker in `Bash.pm`,
-the `Security::Checker`, and the `Security::Rule::*` classes. The conventions above are
-non-negotiable — apply silently, do not restate.
+the `Security::Checker`, and the `Security::Rule::*` classes. The architecture, the data
+shapes and the walker quirks live in the briefed `text-treesitter-bash-core` skill; the
+rule contract, the proven rule patterns and the steps for a new rule live in
+`text-treesitter-bash-rules`. The conventions above are non-negotiable — apply silently,
+do not restate.
 
 Work the karr card you were handed: note progress on it, block it with a reason when
 stuck, hand it to `review` when done. Never `done`, never create cards — drift you
