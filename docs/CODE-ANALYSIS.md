@@ -2,7 +2,7 @@
 
 Stand: 2026-08-15
 Codebase-Stand: v0.002 (repo, un-released) / v0.001 (CPAN)
-Verwandte Skills: `.claude/skills/perl-core/SKILL.md`, `.claude/skills/treesitter-bash-security/SKILL.md`
+Verwandte Skills: `.claude/skills/getty-perl-core/SKILL.md`, `.claude/skills/treesitter-bash-security/SKILL.md`
 
 Befunde sind nummeriert und tragen ein Suffix fuer den Schweregrad:
 
@@ -85,7 +85,7 @@ source --[Bash::commands]--> commands
   hash fields"). Regeln verlassen sich darauf.
 - **Rule.pm** ist eine reine ABC-Klasse; `Checker.pm` laedt Plugin-Klassen
   per `Module::Load::load()` zur Laufzeit. Das ist die einzige Stelle,
-  an der ein wirklicher "runtime plugin load" legitim waere (perl-core erlaubt
+  an der ein wirklicher "runtime plugin load" legitim waere (getty-perl-core erlaubt
   das fuer dynamische Klassennamen aus Konfig / DB). Aber siehe §3.1.
 
 ---
@@ -192,29 +192,29 @@ source --[Bash::commands]--> commands
 | # | Datei | Zeilen | Sev | Befund |
 |---|-------|--------|-----|--------|
 | 2.6.1 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 33-36 | BUG (API inconsistency) | `$rule->check($command)` kann zurueckgeben: nichts (DangerousFlags, SensitiveAccess, EnvDangerousVars, MissingAbsolutePath), einen einzelnen Hashref (DangerousFlags, SensitiveAccess, EnvDangerousVars), oder eine Liste (PathTraversal, UnquotedExpansion). In `Checker::check_commands`: `my @result = $rule->check($command); push @issues, @result if @result;` — bei single Hashref wird der Hashref zwangsweise in einen Key-Value-Pair-Liste flachgedrueckt? Nein, `@result = $hashref` macht eine 1-element-Liste. Aber bei `my @result = ...` und `$result` waere `(key1, value1, key2, value2)` nicht das gewollte Verhalten. **Aber** `$rule->check($command)` ist aufgerufen im **Scalar-Listen-Kontext** (`my @result = $rule->check(...)`). In Listenkontext gibt ein Rule-Sub entweder `()` oder `(hashref,)` oder `(hash1, hash2)` zurueck. Das matched. Aber: was, wenn eine Rule `(hashref)` zurueckgibt (also `(single_hash)`)? OK. Was, wenn `undef` zurueckgibt? `my @result = (undef)` — dann ist `@result = (undef)` und `if @result` ist **wahr** (Anzahl = 1), dann wird `push @issues, undef` was den Issues-Stack korrumpiert. Gluecklicherweise geben die existierenden Regeln `undef` zurueck via `return;` (leere Liste). Trotzdem: kein defensiver Guard. Empfehlung: `push @issues, grep { ref eq 'HASH' } $rule->check($command);` |
-| 2.6.2 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 14-22 | BUG (anti-pattern, perl-core) | `require`-inline-Pattern existiert hier zwar nicht direkt, aber `Module::Load::load($class_name)` ist ein "lazy load" von Klassen, die der User als Strings in `rules => ['PathTraversal', ...]` reingibt. Das ist der einzige Fall, in dem `require`/`load` legitim ist (Klassenname kommt aus Config). Aber: in `check_source` Z. 45 steht `require Text::Treesitter::Bash;` — das ist **nicht** legitim (Klassenname statisch), und genau das perl-core-Anti-Pattern (siehe §3.1). |
+| 2.6.2 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 14-22 | BUG (anti-pattern, getty-perl-core) | `require`-inline-Pattern existiert hier zwar nicht direkt, aber `Module::Load::load($class_name)` ist ein "lazy load" von Klassen, die der User als Strings in `rules => ['PathTraversal', ...]` reingibt. Das ist der einzige Fall, in dem `require`/`load` legitim ist (Klassenname kommt aus Config). Aber: in `check_source` Z. 45 steht `require Text::Treesitter::Bash;` — das ist **nicht** legitim (Klassenname statisch), und genau das getty-perl-core-Anti-Pattern (siehe §3.1). |
 | 2.6.3 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 17-18 | BUG (silently fails) | `load($class_name)` laedt das Modul, aber wenn `load` fehlschlaegt (Klasse existiert nicht), wirft `load` und das bricht den ganzen Audit. Wenn die Rule-Klasse geladen wird aber kein `check` definiert, kommt erst zur Laufzeit der `die`-Call in `Rule::check`. Empfehlung: Validierung bei `new()`: nach `load` pruefen ob `$class_name->can('check')` und sonst `croak` mit klarer Meldung. |
 
 ---
 
-## 3. Robustheit / Perl-Idiome (perl-core-Konformitaet)
+## 3. Robustheit / Perl-Idiome (getty-perl-core-Konformitaet)
 
 ### 3.1 `require` statt `use`
 
 | # | Datei | Zeilen | Sev | Befund |
 |---|-------|--------|-----|--------|
-| 3.1.1 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 45 | BUG (perl-core) | `require Text::Treesitter::Bash;` innerhalb von `check_source`. Der Klassenname ist statisch und bekannt — perl-core verbietet `require` als "lazy optimization". Empfehlung: oberhalb der Sub `use Text::Treesitter::Bash;` hinzufuegen. Konsequenz: minimal hoehere Startup-Zeit (ein `use` vs `require`), aber konsistent mit der Hausregel. |
+| 3.1.1 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 45 | BUG (getty-perl-core) | `require Text::Treesitter::Bash;` innerhalb von `check_source`. Der Klassenname ist statisch und bekannt — getty-perl-core verbietet `require` als "lazy optimization". Empfehlung: oberhalb der Sub `use Text::Treesitter::Bash;` hinzufuegen. Konsequenz: minimal hoehere Startup-Zeit (ein `use` vs `require`), aber konsistent mit der Hausregel. |
 
 ### 3.2 Module-Loading
 
-Alle anderen `use`-Statements sind sauber, mit expliziten Import-Listen (`qw(...)`). Pflicht-Variante von perl-core ist eingehalten.
+Alle anderen `use`-Statements sind sauber, mit expliziten Import-Listen (`qw(...)`). Pflicht-Variante von getty-perl-core ist eingehalten.
 
 ### 3.3 Stil / Whitespace
 
 | # | Datei | Zeilen | Sev | Befund |
 |---|-------|--------|-----|--------|
-| 3.3.1 | (alle lib/*.pm) | - | NIT | **2-space-Indent ist sauber durchgehalten** (verifiziert via `cat -A` fuer Bash.pm, Checker.pm, Rule.pm, alle 6 Rule/*.pm und alle t/*.t). Keine Tabs gefunden. perl-core-konform. |
-| 3.3.2 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 11 | NIT | Trailing comma: `'--force',` — perl-core sagt: **No trailing commas at the end of multi-line lists**. `--recursive' => ...` ist die letzte Zeile, kein trailing comma. Aber Z. 11 (`--recursive' => ...`) ist die letzte — kein trailing comma. Konform. (Aber `t/10_commands.t` benutzt `=>`-Listen mit trailing commas — egal, perl-core sagt explizit "in multi-line lists".) |
+| 3.3.1 | (alle lib/*.pm) | - | NIT | **2-space-Indent ist sauber durchgehalten** (verifiziert via `cat -A` fuer Bash.pm, Checker.pm, Rule.pm, alle 6 Rule/*.pm und alle t/*.t). Keine Tabs gefunden. getty-perl-core-konform. |
+| 3.3.2 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 11 | NIT | Trailing comma: `'--force',` — getty-perl-core sagt: **No trailing commas at the end of multi-line lists**. `--recursive' => ...` ist die letzte Zeile, kein trailing comma. Aber Z. 11 (`--recursive' => ...`) ist die letzte — kein trailing comma. Konform. (Aber `t/10_commands.t` benutzt `=>`-Listen mit trailing commas — egal, getty-perl-core sagt explizit "in multi-line lists".) |
 | 3.3.3 | (mehrere) | - | NIT | Einige `=>` Listen enden ohne trailing comma (konsistent). OK. |
 
 ### 3.4 `use strict; use warnings;`
@@ -226,15 +226,15 @@ Alle .pm-Files und alle t/*.t haben `use strict;` und `use warnings;`. Konform.
 | # | Datei | Zeilen | Sev | Befund |
 |---|-------|--------|-----|--------|
 | 3.5.1 | (alle lib/*.pm) | - | NIT | `$VERSION = '0.002';` ist in allen 9 Files konsistent. Perl-core-Konvention: Getty-Distributions haben die **next-unreleased** Version im Repo (CPAN ist 0.001, Repo ist 0.002). `Changes` Z. 1 hat `{{$NEXT}}` als Marker — passt. Konsistent. |
-| 3.5.2 | `cpanfile` | 7 | NIT | `requires 'Text::Treesitter', '0.13';` — `Text::Treesitter` ist kein Getty-Modul, also keine perl-core-Pflicht zu pinnen. Aber `Text::Treesitter::Bash` selbst ist nicht required (Self-Reference). OK. |
+| 3.5.2 | `cpanfile` | 7 | NIT | `requires 'Text::Treesitter', '0.13';` — `Text::Treesitter` ist kein Getty-Modul, also keine getty-perl-core-Pflicht zu pinnen. Aber `Text::Treesitter::Bash` selbst ist nicht required (Self-Reference). OK. |
 
 ### 3.6 Moose / OOP
 
-Das Projekt benutzt **kein** Moose/Moo. Plain OO mit `bless` und `use parent`. Das ist legitim fuer ein kleines Dist — perl-core erlaubt explizit Moose-Freiheit. Aber: perl-core erwaehnt Moose-Patterns als Defaults; hier ist die Abwesenheit eine bewusste Wahl, nicht ein Versehen.
+Das Projekt benutzt **kein** Moose/Moo. Plain OO mit `bless` und `use parent`. Das ist legitim fuer ein kleines Dist — getty-perl-core erlaubt explizit Moose-Freiheit. Aber: getty-perl-core erwaehnt Moose-Patterns als Defaults; hier ist die Abwesenheit eine bewusste Wahl, nicht ein Versehen.
 
 ### 3.7 Path::Tiny
 
-Korrekt eingesetzt (`path(...)`, `->child(...)`, `->mkpath`, `->copy`, `->parent(...)`). perl-core-konform.
+Korrekt eingesetzt (`path(...)`, `->child(...)`, `->mkpath`, `->copy`, `->parent(...)`). getty-perl-core-konform.
 
 ### 3.8 JSON
 
@@ -642,7 +642,7 @@ Aktuell bekommt jede Rule nur den Command-Hash. Wenn die Rule auf den ganzen Sou
 Wenn nur die naechsten 1-2 Tage Zeit sind, hier die hoechste Prioritaet (Reihenfolge = Reihenfolge der Umsetzung):
 
 1. **2.1.1** `|&` in network_to_shell ergaenzen. (5 Minuten, klarer Security-BUG.)
-2. **3.1.1** `require Text::Treesitter::Bash;` in `Checker.pm` zu `use` migrieren. (1 Minute, perl-core-Pflicht.)
+2. **3.1.1** `require Text::Treesitter::Bash;` in `Checker.pm` zu `use` migrieren. (1 Minute, getty-perl-core-Pflicht.)
 3. **2.5.1** Dead `%DANGEROUS_FLAGS` entweder nutzen oder loeschen. (5 Minuten.)
 4. **2.5.7** `UnquotedExpansion` per-Variable pruefen statt per-Source. (30 Minuten, klare FN-Fix.)
 5. **2.5.5** PathTraversal `..` generisch matchen statt `/etc/../`-Praefix. (5 Minuten.)

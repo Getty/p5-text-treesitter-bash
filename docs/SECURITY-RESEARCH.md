@@ -730,7 +730,7 @@ For all rules above:
    negative case in `t/30_security.t`. Use the `prove -lv t/30_security.t
    -- '<subtest>'` style already established.
 6. **Bump `$VERSION`** to `0.003` across `Bash.pm`, `Checker.pm`, all
-   `Rule/*.pm` after the first new rule lands (per `perl-core` /
+   `Rule/*.pm` after the first new rule lands (per `getty-perl-core` /
    `CLAUDE.md`).
 
 ### Walker upgrade (one-time)
