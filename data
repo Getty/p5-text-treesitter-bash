@@ -1,0 +1,31 @@
+---
+class: standard
+completed: 2026-10-21T06:32:47Z
+created: 2026-10-06T19:47:50Z
+id: 10
+priority: medium
+started: 2026-10-21T06:32:47Z
+status: done
+tags:
+- hygiene
+- branch
+- bug
+- review-2026-10-06
+title: 'k6 is done, but its fix never reached main: ''build the grammar once per process''
+  lives only on branch k6-grammar-once'
+updated: 2026-10-21T06:32:47Z
+---
+
+k6 ("Every check_source call rebuilds the grammar in a fresh tempdir; a long-running process fills /tmp") is in `done`. Its commit `889bda7` (2026-09-27; `lib/Text/Treesitter/Bash.pm` +32/-2, `t/96_grammar_build_once.t` +132, `Changes` +6) sits on the local branch `k6-grammar-once` and was never merged:
+
+    git log --oneline main..k6-grammar-once
+    git cherry main k6-grammar-once          # '+', not on main in any form
+
+So `main` still rebuilds the grammar per instance and a long-running process still fills /tmp - the bug the card closed.
+
+Done: the commit is on `main` (merge or cherry-pick; the work tree currently carries uncommitted doc edits, leave those alone), `t/96_grammar_build_once.t` runs green there, the branch is deleted.
+
+---
+Fleet review 2026-10-06 · kind: hygiene · confidence: verified
+
+2026-10-21: Der Fix aus k6 (Commit 889bda7 vom 2026-09-27) ist per Cherry-Pick als 5befd35 auf main gelandet, der Changes-Konflikt wurde durch Zusammenfuehren beider Eintraege geloest. Suite: prove -lr t/ -> 14 Dateien, 582 Tests, PASS (inklusive t/96_grammar_build_once.t). Branch k6-grammar-once und sein Worktree sind entfernt. Dazu die Doku-Nachziehen aus der Skill-Umbenennung (7111aa5): die Doku nannte noch perl-core statt getty-perl-core.
