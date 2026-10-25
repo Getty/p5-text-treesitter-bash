@@ -247,7 +247,8 @@ file in the current shell.
 =item network_to_shell
 
 A network fetcher (C<curl>, C<wget>, C<fetch>, C<aria2c>) piped into
-a shell interpreter. Classic "curl|sh" install vector. The fetcher may
+a shell interpreter, through C<|> or C<|&> (stderr piped along; C<||>
+is not a pipe). Classic "curl|sh" install vector. The fetcher may
 also sit in a substitution of the command in front of the pipe
 (C<echo "$(curl ...)" | sh>); C<commands> then holds that fetcher and
 the shell.

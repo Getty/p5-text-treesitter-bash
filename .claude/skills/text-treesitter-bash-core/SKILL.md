@@ -132,7 +132,8 @@ clean, and never add a path that returns before they are appended.
 - Newline-as-`;` comes from the implicit-gap branch of `_walk_children`; the newline
   case in `_operator_text` is never reached (removing it changes nothing). Pinned in
   `t/40_edge_cases.t`.
-- `|&` is in the operator set but `findings` does not special-case it.
+- `|&` is a pipe like `|`: `findings` accepts both for `network_to_shell`
+  (`t/20_findings.t`, `t/50_findings_extra.t`). No special case beyond that.
 - `time` and `!`-negation before a command extract with `context => ['negated']`, but
   no rule uses that yet.
 - `EnvDangerousVars` / `UnquotedExpansion` regex-match `command->{source}`; quotes and
