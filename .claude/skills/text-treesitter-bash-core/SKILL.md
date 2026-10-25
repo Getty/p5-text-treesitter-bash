@@ -129,7 +129,9 @@ clean, and never add a path that returns before they are appended.
   are walked.
 - Arguments still go through the statement walker, so an arithmetic `|` in an argument
   (`echo $((1|2))`) leaks into the command's `after_op`.
-- Newline-as-`;` is recognized in `_operator_text` but has no dedicated test.
+- Newline-as-`;` comes from the implicit-gap branch of `_walk_children`; the newline
+  case in `_operator_text` is never reached (removing it changes nothing). Pinned in
+  `t/40_edge_cases.t`.
 - `|&` is in the operator set but `findings` does not special-case it.
 - `time` and `!`-negation before a command extract with `context => ['negated']`, but
   no rule uses that yet.

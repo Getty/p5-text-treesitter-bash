@@ -50,6 +50,40 @@ is command_summary("a\nb"),
   ],
   'newline is normalised to ; operator';
 
+# Every form of line break between two commands reads as `;` for both
+# neighbours; after an explicit && or | the explicit operator wins.
+for my $case (
+  [ "a\n\nb",     ';',  ';',  'blank lines collapse into one ;' ],
+  [ "a\n  b\n",   ';',  ';',  'indentation and a trailing newline do not matter' ],
+  [ "a\r\nb",     ';',  ';',  'CRLF line break' ],
+  [ "a &&\nb",    '&&', '&&', 'newline after && keeps &&' ],
+  [ "a ||\nb",    '||', '||', 'newline after || keeps ||' ],
+  [ "a |\nb",     '|',  '|',  'newline after | keeps |' ],
+) {
+  my ( $source, $after, $before, $name ) = @$case;
+  my ( $first, $second ) = @{ command_summary($source) };
+  is [ $first->{after_op}, $second->{before_op} ], [ $after, $before ], "newline: $name";
+}
+
+for my $case (
+  [ "( a\nb )",   ['subshell'], 'subshell' ],
+  [ "{ a\nb\n}",  [],           'brace group' ],
+) {
+  my ( $source, $context, $name ) = @$case;
+  is command_summary($source),
+    [
+      { command => 'a', argv => ['a'], before_op => undef, after_op => ';', context => $context },
+      { command => 'b', argv => ['b'], before_op => ';',   after_op => undef, context => $context }
+    ],
+    "newline inside a $name is ;";
+}
+
+is command_summary("a\nb\nc")->[1]{after_op}, ';', 'newline: middle command of three has ; on both sides';
+
+is command_summary("a \\\nb"),
+  [ { command => 'a', argv => [ 'a', 'b' ], before_op => undef, after_op => undef, context => [] } ],
+  'backslash-newline is a continuation, not a ;';
+
 # --- Semicolon-separated lists ------------------------------------------
 
 is command_summary('a;b;c'),
