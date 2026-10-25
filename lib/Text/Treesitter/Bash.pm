@@ -237,7 +237,10 @@ Often a sign that the caller wants to run arbitrary string.
 =item dynamic_shell
 
 C<bash -c ...>, C<perl -e ...>, C<ruby -e ...>, C<python -c ...>,
-C<node -e ...>. Code passed as a string is opaque to the caller.
+C<node -e ...>. Code passed as a string is opaque to the caller. Short
+options are read as clusters, so C<bash -lc>, C<sh -ec>, C<perl -le>,
+C<perl -0777e>, C<python -Bc>, C<ruby -ne> and C<node -pe> count as well,
+and so do C<node --eval> and C<node --print>.
 
 =item shell_eval
 
@@ -1190,29 +1193,61 @@ sub _is_dynamic_shell {
 
   return 0 if !@$argv;
 
+  # argv is raw: `bash "-lc" id` has the quotes in it.
+  my @args = map { _clean_word($_) } @$argv[ 1 .. $#$argv ];
+
+  # Short options are read as clusters (`-lc`, `-0777e`), see
+  # _has_short_flag; the flags that take the rest of the word as their
+  # argument end the cluster.
   if ( _is_shell_interpreter($name) ) {
-    return scalar grep { $_ eq '-c' } @$argv;
+    return _has_short_flag( \@args, 'c', 'oO' );
   }
 
   # perl: -e, -E (with features), -p/-n (read lines), -pe/-ne (loop+exec),
   #       -i (in-place, often paired with -pe/-ne).
   if ( $name eq 'perl' ) {
-    return scalar grep { m/^-[eEpni]|^-[pPnN][eE]\z/ } @$argv;
+    return _has_short_flag( \@args, 'eEpni', 'MmIdDFxCV' );
   }
 
   # ruby: -e evaluates a string, -r/--require loads a library (often used
   #       with require-time side effects).
   if ( $name eq 'ruby' ) {
-    return scalar grep { $_ eq '-e' || $_ eq '--eval' || m/^-r/ } @$argv;
+    return _has_short_flag( \@args, 'er', 'IFCWEKxi', '--eval' );
   }
 
   if ( $name eq 'node' ) {
-    return scalar grep { $_ eq '-e' || $_ eq '--eval' || $_ eq '-p' } @$argv;
+    return _has_short_flag( \@args, 'ep', q{}, '--eval', '--print' );
   }
 
   if ( _is_python_interpreter($name) ) {
     # python -c "code" and -m module (executes a module as __main__).
-    return scalar grep { $_ eq '-c' || $_ eq '-m' } @$argv;
+    return _has_short_flag( \@args, 'cm', 'WXQ' );
+  }
+
+  return 0;
+}
+
+# True when one of @$args is a short-option cluster holding a flag of
+# $hit, or one of the long options (`--eval`, also as `--eval=code`).
+# A cluster is read the way getopt does: `-lc` is `-l -c`, and a flag of
+# $stop takes the rest of the word as its argument (`-Mstrict`,
+# `-Wignore`), so nothing after it is a flag. The arguments are scanned
+# up to the end, not only up to the script name: an unrecognised case is
+# reported rather than waved through.
+sub _has_short_flag {
+  my ( $args, $hit, $stop, @long ) = @_;
+
+  for my $arg (@$args) {
+    for my $long (@long) {
+      return 1 if $arg eq $long || index( $arg, $long . '=' ) == 0;
+    }
+
+    next unless $arg =~ m/\A-([a-zA-Z0-9]+)/;
+
+    for my $flag ( split //, $1 ) {
+      return 1 if index( $hit, $flag ) >= 0;
+      last if index( $stop, $flag ) >= 0;
+    }
   }
 
   return 0;

@@ -120,6 +120,12 @@
     for itself, not again for the command around it
   - New helper Security::Rule->mask_source($source) for rules that
     match on the text of one command
+  - Fix findings(): dynamic_shell reads short options as clusters, so
+    bash -lc, sh -ec, perl -le, perl -0777e, python3 -Bc, ruby -ne and
+    node -pe are code passed as a string like bash -c always was, and
+    node --print and --eval=CODE count too. Quoted flags ("-c") are
+    seen. Flags that take an argument (perl -Mstrict, python -Wignore)
+    do not make a cluster look like a code flag
 
 0.001     2026-04-24 02:54:50Z
 
