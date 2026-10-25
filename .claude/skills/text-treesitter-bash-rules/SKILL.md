@@ -47,9 +47,9 @@ Return a list for multiple issues; `Checker` flattens.
   `@$argv`, `next if ref $arg`, skip quoted entries when needed.
 - **Regex on source** (`EnvDangerousVars`, `UnquotedExpansion`): easier but loses AST
   structure; prefer when the rule is about surface text (`export LD_PRELOAD=...`).
-  Watch out — `source` at the tree level spans operators/whitespace and can match
-  across commands; scan `command->{source}` (trimmed to the node) for per-command
-  isolation.
+  Watch out — `command->{source}` still holds quoted strings, comments, heredoc bodies
+  and the text of nested `$(...)` commands (which are listed as commands of their own):
+  match on `$class->mask_source($command->{source})` instead of the raw source.
 - **Severity scaling**: one rule returning different severities by context
   (`SensitiveAccess` — `/etc/shadow` high, `/dev/null` low).
 

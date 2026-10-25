@@ -138,8 +138,9 @@ clean, and never add a path that returns before they are appended.
   `negated => 1`. Public, documented and tested; deliberately no rule uses it (negation
   does not make a command safer). `time cmd` is not negation: `time` is parsed as a
   plain command with `cmd` in its argv.
-- `EnvDangerousVars` / `UnquotedExpansion` regex-match `command->{source}`; quotes and
-  whitespace in the node source can produce false positives — see `docs/CODE-ANALYSIS.md`.
+- `EnvDangerousVars` / `UnquotedExpansion` match on `Rule->mask_source($source)`, not on
+  the raw `command->{source}`: nested substitutions, comments, heredoc bodies and (for
+  expansions) everything quoted are blanked. A new surface-text rule uses it too.
 - `Checker::check_source` uses `require Text::Treesitter::Bash;` — a `getty-perl-core`
   violation; should be a top-level `use`.
 

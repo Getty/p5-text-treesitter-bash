@@ -13,9 +13,9 @@ Text::Treesitter::Bash::Security::Rule::EnvDangerousVars - detect dangerous envi
 
 =head1 DESCRIPTION
 
-Scans the raw source text of each command for assignments / uses of
-environment variables known to enable code execution or hijack
-process behaviour:
+Scans the words of each command for assignments (C<NAME=value>,
+C<export NAME=value>, C<env NAME=value cmd>) of environment variables
+known to enable code execution or hijack process behaviour:
 
 =over 4
 
@@ -25,8 +25,12 @@ process behaviour:
 
 =back
 
-Operates on raw source, so false positives are possible when a
-variable name appears in an unrelated context (e.g. inside a string).
+Only the command's own text is looked at (see
+L<Text::Treesitter::Bash::Security::Rule/mask_source>): a name that is
+merely mentioned (C<echo ENV>, C<grep IFS file>, C</etc/ENV.conf>, inside
+a string, C<$LD_PRELOAD> read) does not fire, and a command nested in
+C<$(...)> is reported once, for itself. Any word of the shape
+C<NAME=value> counts, whichever command it is an argument of.
 
 =head1 SEE ALSO
 
@@ -70,34 +74,26 @@ sub check {
 
   my $source = $command->{source} // '';
 
+  # Only the command's own words, with quoted text kept in one piece and
+  # nested substitutions, comments and heredoc bodies left out.
+  my ($words) = $class->mask_source($source);
+
+  # A variable is set by a word that begins with `NAME=` (or `NAME+=`):
+  # at the start of the command or after whitespace or an operator,
+  # optionally inside the opening quote of the word (`env "NAME=x"`).
+  my $head = qr{ (?: \A | (?<= [\s;&|(] ) ) ["']? }x;
+
   for my $tuple (@DANGEROUS_VARS) {
     my ( $var, $severity, $message ) = @$tuple;
 
-    # Build the end-of-name anchor. For a normal variable, require
-    # either a word-boundary, the `%%` suffix (BASH_FUNC_<name>%%),
-    # an `=`, or end-of-string after the name. The naive `\b...\b`
-    # fails for prefixes that end in a word character (e.g.
-    # `BASH_FUNC_`), because `_` is a word char and there is no
-    # boundary between `_` and the function name.
-    my $rx;
-    if ( $var =~ /_\z/ ) {
-      # Prefix-match (e.g. BASH_FUNC_): the real variable is the
-      # prefix + an identifier. Require the prefix to be followed by
-      # an identifier character, then end-of-name (boundary, `%%`,
-      # `=`, end-of-string).
-      $rx = qr{
-        \b (?:export\s+)? \Q$var\E [a-zA-Z0-9_]+
-        (?: \b | %% | = | \z )
-      }xs;
-    }
-    else {
-      $rx = qr{
-        \b (?:export\s+)? \Q$var\E
-        (?: \b | %% | = | \z )
-      }xs;
-    }
+    # A trailing `_` marks a prefix (BASH_FUNC_): the real variable is
+    # the prefix plus an identifier, and it may end in `%%` (an exported
+    # function) instead of being assigned.
+    my $rx = $var =~ m/_\z/
+      ? qr{ $head \Q$var\E [a-zA-Z0-9_]+ (?: %% | \+?= | (?![a-zA-Z0-9_]) ) }x
+      : qr{ $head \Q$var\E \+?= }x;
 
-    if ( $source =~ $rx ) {
+    if ( $words =~ $rx ) {
       return {
         rule     => 'EnvDangerousVars',
         severity => $severity,

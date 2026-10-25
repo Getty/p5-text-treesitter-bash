@@ -109,6 +109,17 @@
   - Static verification: all 12 modules and all 8 test files pass
     `perl -c` against stubbed Text::Treesitter dependency
   - Bump $VERSION to 0.003 across all 11 modules
+  - Fix EnvDangerousVars and UnquotedExpansion: each looks at the text
+    of its own command only. A variable name that is merely mentioned
+    (echo ENV, grep IFS file, /etc/ENV.conf, inside a string, read as
+    $LD_PRELOAD) no longer fires; EnvDangerousVars wants an assignment
+    (NAME=value, export, env). UnquotedExpansion ignores quotes,
+    escapes, comments, heredoc bodies, [[ ]] and assignment values
+    (DIR=$HOME/bin), and no longer misses $x/y after a $'...' string.
+    A command nested in $(...), backticks or <(...) is reported once,
+    for itself, not again for the command around it
+  - New helper Security::Rule->mask_source($source) for rules that
+    match on the text of one command
 
 0.001     2026-04-24 02:54:50Z
 
