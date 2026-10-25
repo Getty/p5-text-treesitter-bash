@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-10-25T01:38:05Z
+claimed_by: offen-2610
+class: standard
+completed: 2026-10-25T01:38:05Z
+created: 2026-08-31T04:28:56Z
+id: 3
+priority: low
+started: 2026-10-25T01:16:49Z
+status: done
+tags:
+- tests
+title: No dedicated test for newline-as-semicolon operator
+updated: 2026-10-25T01:38:05Z
+---
+
+_operator_text treats a newline as an implicit `;`. Semantically fine but there is no dedicated test asserting it.
+
+Commit 750d95d. Ein Test für a, Newline, b existierte schon in t/40_edge_cases.t. Ergänzt: Leerzeilen, CRLF, Newline nach &&, || und |, in Subshell und Klammergruppe, Backslash-Newline. Alles war schon korrekt, der Test war also nicht rot (reine Testergänzung). Gemessen: der Newline-Zweig in _operator_text wird nie erreicht, das Verhalten ist ohne ihn identisch (die implizite Lücke in _walk_children setzt das Semikolon). Zweig bleibt stehen.
