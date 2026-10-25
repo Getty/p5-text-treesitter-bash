@@ -10,8 +10,8 @@ extracts executable commands, and runs a rule-based security checker over them �
 primarily for AI-agent approval flows that classify raw bash before it runs.
 
 Perl house conventions (`use` vs `require`, `$VERSION` = next, cpanfile pinning,
-2-space indent, Changes) live in `getty-perl-core` — not restated here. Der
-Kontrakt, den eine `Security::Rule` erfüllen muss, steht in
+2-space indent, Changes) live in `getty-perl-core` — not restated here. The
+contract a `Security::Rule` must fulfil is in
 `text-treesitter-bash-rules`.
 
 ## Architecture
@@ -148,7 +148,7 @@ clean, and never add a path that returns before they are appended.
 - `Checker::check_source` uses `require Text::Treesitter::Bash;` — a `getty-perl-core`
   violation; should be a top-level `use`.
 
-## Regeln
+## Rules
 
-Der Kontrakt einer `Security::Rule`, die Severity-Stufen, die Muster und die Schritte
-für eine neue Regel: `text-treesitter-bash-rules`.
+The contract of a `Security::Rule`, the severity levels, the patterns and the steps
+for a new rule: `text-treesitter-bash-rules`.

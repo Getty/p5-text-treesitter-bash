@@ -3,11 +3,11 @@ name: text-treesitter-bash-rules
 description: "The contract a Text::Treesitter::Bash Security::Rule must fulfil, the severity levels, the proven rule patterns, the five steps to add a rule and the traps of rule code. Load when writing or changing a security rule, touching the Checker, or reviewing a rule."
 ---
 
-# Text::Treesitter::Bash — Regeln
+# Text::Treesitter::Bash — rules
 
-Der Vertrag, den eine `Security::Rule` erfüllen muss, die Muster, die sich bewährt
-haben, und die Schritte für eine neue Regel. Architektur, Datenformen und die
-Eigenheiten des AST-Walkers stehen in `text-treesitter-bash-core`.
+The contract a `Security::Rule` must fulfil, the patterns that have proven
+themselves, and the steps for a new rule. Architecture, data shapes and the
+quirks of the AST walker are in `text-treesitter-bash-core`.
 
 ## Rule contract
 

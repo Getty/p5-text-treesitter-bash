@@ -1,25 +1,25 @@
-# Code-Analyse: Text::Treesitter::Bash
+# Code analysis: Text::Treesitter::Bash
 
-Stand: 2026-08-15
-Codebase-Stand: v0.002 (repo, un-released) / v0.001 (CPAN)
-Verwandte Skills: `.claude/skills/getty-perl-core/SKILL.md`, `.claude/skills/treesitter-bash-security/SKILL.md`
+As of: 2026-08-15
+Codebase state: v0.002 (repo, unreleased) / v0.001 (CPAN)
+Related skills: `.claude/skills/getty-perl-core/SKILL.md`, `.claude/skills/treesitter-bash-security/SKILL.md`
 
-Befunde sind nummeriert und tragen ein Suffix fuer den Schweregrad:
+Findings are numbered and carry a suffix for the severity:
 
-- **BUG** — funktional falsch / Sicherheitsproblem / silent data loss
-- **ENHANCEMENT** — sinnvolle Erweiterung die das Verhalten klarer / besser macht
-- **NIT** — Stil / Doku / micro
+- **BUG** — functionally wrong / security problem / silent data loss
+- **ENHANCEMENT** — a sensible extension that makes the behavior clearer / better
+- **NIT** — style / docs / micro
 
-Alle Zeilenangaben beziehen sich auf den aktuellen Commit (`33d5e82`).
+All line numbers refer to the current commit (`33d5e82`).
 
 ---
 
-## 1. Architektur-Ueberblick
+## 1. Architecture overview
 
 ```
 +------------------+       parse() / commands()        +-----------------------+
-|  Quelltext       |---------------------------------->| Text::Treesitter::Bash|
-|  (Skalar-String) |                                   |  lib/.../Bash.pm      |
+|  Source text     |---------------------------------->| Text::Treesitter::Bash|
+|  (scalar string) |                                   |  lib/.../Bash.pm      |
 +------------------+                                   |  - parse              |
                                                        |  - commands           |
                                                        |  - findings           |
@@ -30,11 +30,11 @@ Alle Zeilenangaben beziehen sich auf den aktuellen Commit (`33d5e82`).
                                        commands()  ------+         | findings()
                                                                  |
                                                        +---------v---------+
-                                                       |  Command-Liste    |
+                                                       |  Command list     |
                                                        |  (Array of Hashes)|
                                                        +---+----------+----+
                                                            |          |
-                                       check_commands() ---+          +-- (eingebaut)
+                                       check_commands() ---+          +-- (built-in)
                                                            |
                                           +----------------v------------------+
                                           | Security::Checker                 |
@@ -50,17 +50,17 @@ Alle Zeilenangaben beziehen sich auf den aktuellen Commit (`33d5e82`).
                               Rule::PathTraversal   Rule::DangerousFlags   Rule::... |
 ```
 
-### Datenfluss
+### Data flow
 
-**Pfad A (eingebaute Findings):**
+**Path A (built-in findings):**
 ```
 source --[Bash::findings]--> commands --[findings()]--> List<Finding{type,message,command}>
                                           |
-                                          +-- pro Command: shell_interpreter / dynamic_shell / shell_eval
-                                          +-- pro Paar:       network_to_shell
+                                          +-- per command: shell_interpreter / dynamic_shell / shell_eval
+                                          +-- per pair:       network_to_shell
 ```
 
-**Pfad B (Plugin-Rules):**
+**Path B (plugin rules):**
 ```
 source --[Bash::commands]--> commands
        --[Checker::check_source]--> check_commands(@commands)
@@ -73,233 +73,233 @@ source --[Bash::commands]--> commands
                                   +-- Rule::UnquotedExpansion->check($cmd) -> [Finding]
 ```
 
-### Bewertung
+### Assessment
 
-- **Zwei parallele Finding-Pipelines** mit unterschiedlichen Datenformaten (siehe §7).
-  Eingebaute Findings (`shell_interpreter`, `dynamic_shell`, `shell_eval`,
-  `network_to_shell`) sind hartcodiert in `Bash.pm`. Alle anderen Regeln
-  leben als Plugin-Klassen in `Security/Rule/`. Die Trennlinie ist
-  nicht dokumentiert und fuehrt zu Verwirrung: warum ist `network_to_shell`
-  eingebaut, `unquoted_expansion` aber ein Plugin?
-- **Command-Hash ist gut dokumentiert** (siehe treesitter-bash-security Skill §"Command
-  hash fields"). Regeln verlassen sich darauf.
-- **Rule.pm** ist eine reine ABC-Klasse; `Checker.pm` laedt Plugin-Klassen
-  per `Module::Load::load()` zur Laufzeit. Das ist die einzige Stelle,
-  an der ein wirklicher "runtime plugin load" legitim waere (getty-perl-core erlaubt
-  das fuer dynamische Klassennamen aus Konfig / DB). Aber siehe §3.1.
+- **Two parallel finding pipelines** with different data formats (see §7).
+  Built-in findings (`shell_interpreter`, `dynamic_shell`, `shell_eval`,
+  `network_to_shell`) are hardcoded in `Bash.pm`. All other rules
+  live as plugin classes in `Security/Rule/`. The dividing line is
+  undocumented and causes confusion: why is `network_to_shell`
+  built in, but `unquoted_expansion` a plugin?
+- **The command hash is well documented** (see treesitter-bash-security skill §"Command
+  hash fields"). Rules rely on it.
+- **Rule.pm** is a pure ABC class; `Checker.pm` loads plugin classes
+  at runtime via `Module::Load::load()`. That is the only place
+  where a genuine "runtime plugin load" would be legitimate (getty-perl-core allows
+  it for dynamic class names from config / DB). But see §3.1.
 
 ---
 
-## 2. Korrektheits-Probleme
+## 2. Correctness problems
 
-### 2.1 Eingebaute Findings (`Bash.pm`)
+### 2.1 Built-in findings (`Bash.pm`)
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.1.1 | `lib/Text/Treesitter/Bash.pm` | 76 | BUG | `network_to_shell` matcht nur `^\|` — also nur die normale Pipe. **`|&` (pipe-failure, bash-spezifisch) wird NICHT erkannt.** `curl https://x \|& sh` ist exakt so gefaehrlich wie `curl https://x \| sh`. Empfehlung: `( $left->{after_op} // '' ) =~ m/^\|(?:&)?/` bzw. explizit `|\|`. |
-| 2.1.2 | `lib/Text/Treesitter/Bash.pm` | 38-89 | ENHANCEMENT | `findings()` dupliziert Logik, die eigentlich eine Rule sein sollte (`shell_interpreter`, `dynamic_shell`, `shell_eval`, `network_to_shell`). Empfehlung: Diese vier Finding-Typen in `Security/Rule/*` ziehen und `findings()` zu einem Thin-Wrapper machen, der die Rule-Sammlung automatisch mit ein paar Default-Rules bestueckt. Macht die Architektur konsistent: ein Mechanismus, eine Stelle. |
-| 2.1.3 | `lib/Text/Treesitter/Bash.pm` | 72 | BUG | `for my $index ( 1 .. $#commands )` — bei leerer Source ist `$#commands == -1`, der Range `1..-1` ist in modernem Perl leer (gut), aber in 5.26..5.34 war er `[1, 0]`. Kein sofortiger Crash, aber fragil. Empfehlung: `for my $index ( 1 .. scalar(@commands) - 1 )` oder expliziter Guard. |
-| 2.1.4 | `lib/Text/Treesitter/Bash.pm` | 55-61 | BUG | `_is_dynamic_shell` prueft `-c` fuer Perl/Ruby/Node (richtig ist `-e`), aber: Perl kennt auch `-E`, `-p`, `-n`, `-i`, `-pe`, `-ne`; Ruby kennt `-e`, `-r` (verwandt mit require), `-rr`; Python kennt `-c` (gut) plus `-m` (Modul-Ausfuehrung). `perl -e 'rmtree "/"'` wird erkannt, aber `perl -E 'say `rmtree "/"`'` nicht. Empfehlung: Whitelist erweitern. |
-| 2.1.5 | `lib/Text/Treesitter/Bash.pm` | 375-389 | BUG | `_is_dynamic_shell` matcht `python` aber **nicht** `python3.11`, weil das Regex `\Apython(?:\d+(?:\.\d+)?)?\z` kein `python3.11rc1`-Suffix akzeptiert (kein Real-World-Issue), aber `pypy`, `pypy3`, `jython`, `micropython`, `nushell` (nu) sind ebenfalls Python-OSVs. Empfehlung: Liste explizit fuehren statt Regex-Whitespace. |
-| 2.1.6 | `lib/Text/Treesitter/Bash.pm` | 47 | NIT | `_is_shell_interpreter` enthaelt `fish` — gut — aber `csh`, `tcsh`, `ash`, `busybox sh` fehlen. NIT, weil diese selten via `-c` benutzt werden, aber `csh -c 'rm -rf /'` ist ebenfalls gefaehrlich. |
-| 2.1.7 | `lib/Text/Treesitter/Bash.pm` | 271-283 | BUG | `_simple_command_entry` splittet den Source-Text blind auf Whitespace: `export FOO="hello world"`. Daraus wird `argv = ['export', 'FOO="hello', 'world"']`. `command` ist `export`, argv ist kaputt. Regeln, die `argv` regexen, koennen `FOO="hello world"` nicht korrekt analysieren (siehe `EnvDangerousVars`, die auf `source` regexen — gut — aber jeder Rule, der auf `argv` baut, kriegt kaputte Tokens fuer compound assignments). Empfehlung: AST-Werte aus dem Tree holen statt String-Split, oder den Tree-sitter-`word`-Knoten fuer jedes Argument verwenden. |
+| 2.1.1 | `lib/Text/Treesitter/Bash.pm` | 76 | BUG | `network_to_shell` only matches `^\|` — i.e. only the normal pipe. **`|&` (pipe-failure, bash-specific) is NOT detected.** `curl https://x \|& sh` is exactly as dangerous as `curl https://x \| sh`. Recommendation: `( $left->{after_op} // '' ) =~ m/^\|(?:&)?/` or explicitly `|\|`. |
+| 2.1.2 | `lib/Text/Treesitter/Bash.pm` | 38-89 | ENHANCEMENT | `findings()` duplicates logic that should really be a rule (`shell_interpreter`, `dynamic_shell`, `shell_eval`, `network_to_shell`). Recommendation: move these four finding types into `Security/Rule/*` and turn `findings()` into a thin wrapper that automatically equips the rule collection with a few default rules. Makes the architecture consistent: one mechanism, one place. |
+| 2.1.3 | `lib/Text/Treesitter/Bash.pm` | 72 | BUG | `for my $index ( 1 .. $#commands )` — with empty source `$#commands == -1`; the range `1..-1` is empty in modern Perl (good), but in 5.26..5.34 it was `[1, 0]`. No immediate crash, but fragile. Recommendation: `for my $index ( 1 .. scalar(@commands) - 1 )` or an explicit guard. |
+| 2.1.4 | `lib/Text/Treesitter/Bash.pm` | 55-61 | BUG | `_is_dynamic_shell` checks `-c` for Perl/Ruby/Node (correct is `-e`), but: Perl also knows `-E`, `-p`, `-n`, `-i`, `-pe`, `-ne`; Ruby knows `-e`, `-r` (related to require), `-rr`; Python knows `-c` (good) plus `-m` (module execution). `perl -e 'rmtree "/"'` is detected, but `perl -E 'say `rmtree "/"`'` is not. Recommendation: extend the whitelist. |
+| 2.1.5 | `lib/Text/Treesitter/Bash.pm` | 375-389 | BUG | `_is_dynamic_shell` matches `python` but **not** `python3.11`, because the regex `\Apython(?:\d+(?:\.\d+)?)?\z` does not accept a `python3.11rc1` suffix (not a real-world issue), but `pypy`, `pypy3`, `jython`, `micropython`, `nushell` (nu) are Python OSVs as well. Recommendation: keep an explicit list instead of regex whitespace. |
+| 2.1.6 | `lib/Text/Treesitter/Bash.pm` | 47 | NIT | `_is_shell_interpreter` contains `fish` — good — but `csh`, `tcsh`, `ash`, `busybox sh` are missing. NIT because these are rarely used via `-c`, but `csh -c 'rm -rf /'` is just as dangerous. |
+| 2.1.7 | `lib/Text/Treesitter/Bash.pm` | 271-283 | BUG | `_simple_command_entry` blindly splits the source text on whitespace: `export FOO="hello world"` becomes `argv = ['export', 'FOO="hello', 'world"']`. `command` is `export`, argv is broken. Rules that regex `argv` cannot analyze `FOO="hello world"` correctly (see `EnvDangerousVars`, which regexes `source` — good — but every rule that builds on `argv` gets broken tokens for compound assignments). Recommendation: take AST values from the tree instead of a string split, or use the tree-sitter `word` node for each argument. |
 
 ### 2.2 Walker (`_walk_node`, `_walk_children`, `_walk_command_children`)
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.2.1 | `lib/Text/Treesitter/Bash.pm` | 173-176 | BUG | `subshell`, `process_substitution`, `command_substitution` werden mit `initial_before_op = undef` an `_walk_children` weitergegeben. **Der Operator VOR dem subshell geht verloren.** Beispiel: `cmd1 && (cmd2; cmd3)` — `cmd2` bekommt `before_op = undef`, obwohl es faktisch hinter `&&` steht. Empfehlung: `initial_before_op` aus dem `pending_op` des aeusseren `_walk_children` durchreichen. |
-| 2.2.2 | `lib/Text/Treesitter/Bash.pm` | 183-186 | NIT | `negated_command` setzt context `'negated'`, aber die Negation `!` selbst wird nirgends im Command-Hash abgebildet. Wer `! rm -rf /` erkennen will, muss auf context-String matchen, was fragil ist. Empfehlung: `negated => 1` im Hash. |
-| 2.2.3 | `lib/Text/Treesitter/Bash.pm` | 188-194 | BUG | `redirected_statement` behandelt nur `body`. Die Redirects (`>`, `<`, `>>`, `<<<`, `2>&1`) gehen verloren. Empfehlung: Redirects als `redirects => [...]` ans Command-Hash anhaengen — Regeln wie `WritingToSystemPath` koennten dann `> /etc/passwd` erkennen. |
-| 2.2.4 | `lib/Text/Treesitter/Bash.pm` | 167-171 | NIT | `declaration_command`, `unset_command`, `test_command` werden via `_simple_command_entry` emittiert. `test_command` (`[ ... ]`, `[[ ... ]]`) ist KEIN ausfuehrbares Kommando — es ist eine Bedingungsauswertung. In eine Finding-Liste gehoert das eigentlich nicht. Empfehlung: `test_command` ueberspringen oder mit `context => ['test']` markieren und Regeln beibringen, es zu ignorieren. |
-| 2.2.5 | `lib/Text/Treesitter/Bash.pm` | 220-228 | NIT | `_walk_command_children` filtert `command_name` raus, aber nicht `variable_assignment` (z.B. `FOO=bar cmd`). Dadurch entstehen leere Subtrees. Funktioniert zufaellig (kein neues Command wird gepusht), aber suboptimal. |
-| 2.2.6 | `lib/Text/Treesitter/Bash.pm` | 297-308 | BUG | `_operator_text` kennt `&& \|\| \| \|& ; \n`. **Es fehlt `&` (Background).** Beispiel: `rm -rf / & sleep 5` — `rm` bekommt kein `after_op='&'`. Empfehlung: `return $text if $text eq '&';` hinzufuegen. |
-| 2.2.7 | `lib/Text/Treesitter/Bash.pm` | 305 | NIT | `return ';' if $text =~ m/^\s*\n\s*$/;` — das ist eigentlich ein Newline-Operator. Es waere klarer, das Literal `'\n'` zurueckzugeben statt `';'`, weil Newlines in Listen wirklich als Command-Separator wirken. Konsistenz: es gibt zwei Werte fuer den gleichen Sachverhalt. |
-| 2.2.8 | `lib/Text/Treesitter/Bash.pm` | 156-197 | ENHANCEMENT | Keine spezialisierte Behandlung fuer `case_statement`, `for_statement`, `while_statement`, `if_statement`, `function_definition`, `elif_clause`, `else_clause`, `do_group`. Sie fallen durch auf `_walk_children`. Funktioniert (innere Commands werden extrahiert), aber `context` verliert diese wichtigen Marker. Empfehlung: Dedizierte Branches, die `context` ergaenzen (analog zu `'pipeline'`). |
-| 2.2.9 | `lib/Text/Treesitter/Bash.pm` | 156-197 | ENHANCEMENT | `function_definition` wird nicht speziell behandelt. Der Funktionsname `foo` aus `foo() { bar; }` geht verloren. Empfehlung: `function_definition`-Branch mit Funktionsnamen-Extraktion. |
+| 2.2.1 | `lib/Text/Treesitter/Bash.pm` | 173-176 | BUG | `subshell`, `process_substitution`, `command_substitution` are passed to `_walk_children` with `initial_before_op = undef`. **The operator BEFORE the subshell is lost.** Example: `cmd1 && (cmd2; cmd3)` — `cmd2` gets `before_op = undef`, although it actually sits after `&&`. Recommendation: pass `initial_before_op` through from the `pending_op` of the outer `_walk_children`. |
+| 2.2.2 | `lib/Text/Treesitter/Bash.pm` | 183-186 | NIT | `negated_command` sets context `'negated'`, but the negation `!` itself is not represented anywhere in the command hash. Anyone who wants to detect `! rm -rf /` has to match on the context string, which is fragile. Recommendation: `negated => 1` in the hash. |
+| 2.2.3 | `lib/Text/Treesitter/Bash.pm` | 188-194 | BUG | `redirected_statement` only handles `body`. The redirects (`>`, `<`, `>>`, `<<<`, `2>&1`) are lost. Recommendation: attach redirects to the command hash as `redirects => [...]` — rules like `WritingToSystemPath` could then detect `> /etc/passwd`. |
+| 2.2.4 | `lib/Text/Treesitter/Bash.pm` | 167-171 | NIT | `declaration_command`, `unset_command`, `test_command` are emitted via `_simple_command_entry`. `test_command` (`[ ... ]`, `[[ ... ]]`) is NOT an executable command — it is a condition evaluation. It does not really belong in a finding list. Recommendation: skip `test_command` or mark it with `context => ['test']` and teach rules to ignore it. |
+| 2.2.5 | `lib/Text/Treesitter/Bash.pm` | 220-228 | NIT | `_walk_command_children` filters out `command_name`, but not `variable_assignment` (e.g. `FOO=bar cmd`). This produces empty subtrees. Works by accident (no new command is pushed), but suboptimal. |
+| 2.2.6 | `lib/Text/Treesitter/Bash.pm` | 297-308 | BUG | `_operator_text` knows `&& \|\| \| \|& ; \n`. **`&` (background) is missing.** Example: `rm -rf / & sleep 5` — `rm` gets no `after_op='&'`. Recommendation: add `return $text if $text eq '&';`. |
+| 2.2.7 | `lib/Text/Treesitter/Bash.pm` | 305 | NIT | `return ';' if $text =~ m/^\s*\n\s*$/;` — this is really a newline operator. It would be clearer to return the literal `'\n'` instead of `';'`, because newlines in lists really act as command separators. Consistency: there are two values for the same thing. |
+| 2.2.8 | `lib/Text/Treesitter/Bash.pm` | 156-197 | ENHANCEMENT | No specialized handling for `case_statement`, `for_statement`, `while_statement`, `if_statement`, `function_definition`, `elif_clause`, `else_clause`, `do_group`. They fall through to `_walk_children`. Works (inner commands are extracted), but `context` loses these important markers. Recommendation: dedicated branches that extend `context` (analogous to `'pipeline'`). |
+| 2.2.9 | `lib/Text/Treesitter/Bash.pm` | 156-197 | ENHANCEMENT | `function_definition` is not handled specially. The function name `foo` from `foo() { bar; }` is lost. Recommendation: a `function_definition` branch with function name extraction. |
 
 ### 2.3 `_command_entry`
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.3.1 | `lib/Text/Treesitter/Bash.pm` | 230-265 | BUG (potentiell) | Das `shift @fields`-Paar-Pattern nimmt an, dass `field_names_with_child_nodes` strikt alternierend `(field_name, child_node)`-Paare liefert. Wenn der Binding-Aufruf eine ungerade Anzahl liefert, oder wenn die Paar-Struktur sich bei einem Update aendert, dann wird die Zuordnung korrupt: das naechste `child` kommt aus dem falschen Feld. Empfehlung: Iteriere explizit ueber `$node->field_names` und hole das Child per `$node->child_by_field_name($field)`. Vermeidet die Annahme ueber die Pair-Struktur und ist robuster. |
-| 2.3.2 | `lib/Text/Treesitter/Bash.pm` | 248-250 | BUG | Unfielded-children-Logik captured alles, was `_is_argument_node` matcht UND NACH dem Namen kommt (`$seen_name`). Aber tree-sitter kann auch unbenannte `word`-Kinder VOR dem Namen haben (z.B. bei `env VAR=val cmd` — wenn `env` als unbenanntes `word` VOR `command_name` kommt). Diese werden dann verschluckt. Empfehlung: Nur `argument`-Feld-Iteration verwenden; unbenannte Kinder ganz wegwerfen oder als Meta sammeln. |
-| 2.3.3 | `lib/Text/Treesitter/Bash.pm` | 310-324 | BUG | `_is_argument_node` enthaelt nicht: `array`, `subscript`, `regex`, `extglob_pattern`. `${arr[@]}` wird als Argument stillschweigend fallengelassen. Konsequenz: `cat ${arr[@]}` hat `argv = ['cat']` statt `['cat', '${arr[@]}']`. Regeln wie `UnquotedExpansion` koennen das nicht sehen. Empfehlung: Tree-sitter-bash node-types.json konsultieren und vollstaendige Liste fuehren. |
-| 2.3.4 | `lib/Text/Treesitter/Bash.pm` | 326-338 | BUG | `_clean_word` strippt `"..."` und `'...'` Quotes, aber: bei `'$foo'` (single-quoted, also literal `$foo`) wird `$foo` zurueckgegeben. Wer `command` als Bare-Namen verwendet, kriegt ein Dollarzeichen — fuehrt zu Regex-Fehltreffern in `KNOWN_COMMANDS` und Rule-Logik. Empfehlung: Quoted-Words als separate Klasse behandeln (siehe treesitter-bash-security Skill §"argv caveat"). |
+| 2.3.1 | `lib/Text/Treesitter/Bash.pm` | 230-265 | BUG (potential) | The `shift @fields` pair pattern assumes that `field_names_with_child_nodes` returns strictly alternating `(field_name, child_node)` pairs. If the binding call returns an odd count, or if the pair structure changes in an update, the mapping gets corrupted: the next `child` comes from the wrong field. Recommendation: iterate explicitly over `$node->field_names` and fetch the child via `$node->child_by_field_name($field)`. Avoids the assumption about the pair structure and is more robust. |
+| 2.3.2 | `lib/Text/Treesitter/Bash.pm` | 248-250 | BUG | The unfielded-children logic captures everything that matches `_is_argument_node` AND comes AFTER the name (`$seen_name`). But tree-sitter can also have unnamed `word` children BEFORE the name (e.g. with `env VAR=val cmd` — when `env` comes as an unnamed `word` BEFORE `command_name`). These are then swallowed. Recommendation: use only `argument` field iteration; discard unnamed children entirely or collect them as meta. |
+| 2.3.3 | `lib/Text/Treesitter/Bash.pm` | 310-324 | BUG | `_is_argument_node` does not include: `array`, `subscript`, `regex`, `extglob_pattern`. `${arr[@]}` is silently dropped as an argument. Consequence: `cat ${arr[@]}` has `argv = ['cat']` instead of `['cat', '${arr[@]}']`. Rules like `UnquotedExpansion` cannot see it. Recommendation: consult tree-sitter-bash node-types.json and keep a complete list. |
+| 2.3.4 | `lib/Text/Treesitter/Bash.pm` | 326-338 | BUG | `_clean_word` strips `"..."` and `'...'` quotes, but: for `'$foo'` (single-quoted, i.e. literal `$foo`), `$foo` is returned. Anyone using `command` as a bare name gets a dollar sign — leads to regex false hits in `KNOWN_COMMANDS` and rule logic. Recommendation: treat quoted words as a separate class (see treesitter-bash-security skill §"argv caveat"). |
 
-### 2.4 Edge-Cases ohne Behandlung
+### 2.4 Unhandled edge cases
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.4.1 | `lib/Text/Treesitter/Bash.pm` | 23-27 | BUG | `parse()` akzeptiert nur `defined $source`. Leerstring `""` ist erlaubt (gut), aber: nil-bytes (`"\0"`) im Source fuehren vermutlich zu Tree-sitter-internem Fehler, weil tree-sitter byte-orientiert ist und die meisten Grammars NUL ablehnen. Invalid UTF-8 (`"\xff"`) ohne `utf8::decode` ebenfalls. Keine Validierung, keine `croak`. Empfehlung: Mindestens UTF-8-Validierung via `utf8::valid($source)` und ein klarer Fehler. |
-| 2.4.2 | `lib/Text/Treesitter/Bash.pm` | 113-139 | NIT | `_build_runtime_lang_dir` extrahiert 5 Dateien in einen `tempdir` mit `CLEANUP => 1`. Das ist OK, aber: der `tempdir`-Pfad landet in `$self->{_tmpdir}` und wird nirgends genutzt. Toter State. Empfehlung: Entweder weglassen oder den Pfad ueber eine `Accessor` exponieren (Debugging). |
-| 2.4.3 | `lib/Text/Treesitter/Bash.pm` | 99-104 | NIT | `Text::Treesitter::Language::build` wird ohne explizite Fehlerbehandlung aufgerufen. Bei Compile-Failure faengt der `local *STDOUT = $capture` die Diagnose ab — die aber nur in `$stdout` landet und nirgends sichtbar wird. Empfehlung: Bei `! -f $lang_lib` nach `build` immer noch `croak` mit `$stdout`, sonst ist der Build-Fehler unsichtbar. |
-| 2.4.4 | `lib/Text/Treesitter/Bash.pm` | 141-154 | NIT | `_find_share_dir` schaut zuerst `dist_dir()`, dann `$INC`-basiert. Wenn beides scheitert, wird gecroaked. Aber: bei der `INC`-Variante wird `parent(4)` benutzt, was magisch ist und bei Package-Restrukturierung bricht. Empfehlung: konkreten Pfad berechnen (`path(__FILE__)->parent(3)->child('share')` analog zu anderen Getty-Dists). |
+| 2.4.1 | `lib/Text/Treesitter/Bash.pm` | 23-27 | BUG | `parse()` only accepts `defined $source`. The empty string `""` is allowed (good), but: NUL bytes (`"\0"`) in the source probably lead to a tree-sitter-internal error, because tree-sitter is byte-oriented and most grammars reject NUL. Invalid UTF-8 (`"\xff"`) without `utf8::decode` likewise. No validation, no `croak`. Recommendation: at least UTF-8 validation via `utf8::valid($source)` and a clear error. |
+| 2.4.2 | `lib/Text/Treesitter/Bash.pm` | 113-139 | NIT | `_build_runtime_lang_dir` extracts 5 files into a `tempdir` with `CLEANUP => 1`. That is OK, but: the `tempdir` path ends up in `$self->{_tmpdir}` and is never used. Dead state. Recommendation: either drop it or expose the path via an accessor (debugging). |
+| 2.4.3 | `lib/Text/Treesitter/Bash.pm` | 99-104 | NIT | `Text::Treesitter::Language::build` is called without explicit error handling. On a compile failure, `local *STDOUT = $capture` catches the diagnostics — which only end up in `$stdout` and are never shown. Recommendation: if `! -f $lang_lib` after `build`, still `croak` with `$stdout`, otherwise the build error is invisible. |
+| 2.4.4 | `lib/Text/Treesitter/Bash.pm` | 141-154 | NIT | `_find_share_dir` looks at `dist_dir()` first, then `$INC`-based. If both fail, it croaks. But: the `INC` variant uses `parent(4)`, which is magic and breaks on package restructuring. Recommendation: compute a concrete path (`path(__FILE__)->parent(3)->child('share')` like other Getty dists). |
 
-### 2.5 Bugs in den Regeln
+### 2.5 Bugs in the rules
 
 #### DangerousFlags
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.5.1 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 8-14 | BUG (dead code) | `%DANGEROUS_FLAGS` wird definiert aber **nirgends gelesen**. Die eigentliche Logik lebt in den `if`-Ketten unten. Empfehlung: entweder `%DANGEROUS_FLAGS` als Lookup-Tabelle benutzen (DRY) oder loeschen. |
-| 2.5.2 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 22-58 | BUG | Nur `rm` / `mv` / `cp` sind sinnvoll mit `-rf`. Aber die Rule feuert fuer **jeden** Command. `gcc -f foo` wuerde als `-rf`-Variante getriggert wenn `-r` vorhanden waere. Mit der `next if ref $arg`-Logik wird zwar ueberprueft, aber die Rule kennt nicht den Command — `ls -rf` wuerde ebenfalls als "dangerous combination: -rf" reportet werden. Empfehlung: Whitelist von Commands, fuer die `-rf`/`-fr`/`--force` mit `--recursive` tatsaechlich destruktiv ist (rm, mv, cp, find -delete, chmod -R ...). |
-| 2.5.3 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 35-44 | BUG | Die Rule prueft auf `-r \|\| -R \|\| --recursive`, aber `rm -fr` (umgekehrte Reihenfolge) wird **nicht** erkannt: Argumente werden in der Reihenfolge der Argv-Liste geprueft, und bei `-fr` ist `$arg` gleich `-fr`, was den ersten `if`-Zweig matched — ok, das matched. Aber `rm -fR` (gross R) matcht weder `-r` noch `-R` (gross vs klein unterscheidet die if-Kette). Empfehlung: case-insensitive regex `qr/-[rR]\|--(?:recursive\|force)/`. |
-| 2.5.4 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 35 | BUG | `-R` als Grossbuchstabe matched, aber `-RF` (kombiniert) oder `-FR` matched nicht, weil `$arg` exakt gleich sein muss. Empfehlung: zusammengesetzte Argumente parsen. |
+| 2.5.1 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 8-14 | BUG (dead code) | `%DANGEROUS_FLAGS` is defined but **never read**. The actual logic lives in the `if` chains below. Recommendation: either use `%DANGEROUS_FLAGS` as a lookup table (DRY) or delete it. |
+| 2.5.2 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 22-58 | BUG | Only `rm` / `mv` / `cp` make sense with `-rf`. But the rule fires for **every** command. `gcc -f foo` would be triggered as an `-rf` variant if `-r` were present. The `next if ref $arg` logic does check, but the rule does not know the command — `ls -rf` would also be reported as "dangerous combination: -rf". Recommendation: a whitelist of commands for which `-rf`/`-fr`/`--force` with `--recursive` is actually destructive (rm, mv, cp, find -delete, chmod -R ...). |
+| 2.5.3 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 35-44 | BUG | The rule checks for `-r \|\| -R \|\| --recursive`, but `rm -fr` (reversed order) is **not** detected: arguments are checked in argv order, and with `-fr` `$arg` equals `-fr`, which matches the first `if` branch — ok, that matches. But `rm -fR` (capital R) matches neither `-r` nor `-R` (the if chain distinguishes upper and lower case). Recommendation: case-insensitive regex `qr/-[rR]\|--(?:recursive\|force)/`. |
+| 2.5.4 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 35 | BUG | `-R` as a capital letter matches, but `-RF` (combined) or `-FR` does not, because `$arg` must be exactly equal. Recommendation: parse combined arguments. |
 
 #### PathTraversal
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.5.5 | `lib/Text/Treesitter/Bash/Security/Rule/PathTraversal.pm` | 16 | BUG | Regex `(?:\.\./\|/etc/../\|/proc/../\|/sys/../)` erwischt `../` nur am Anfang **eines Path-Segments**, das hartcodiert `/etc/../` direkt davor haben muss. `cat /etc/foo/../shadow` (das ist die echte Traversal-Form, weil nach `foo/..` zurueck nach `etc` geht) wird **NICHT** gematcht. Empfehlung: `\.\.(?:/\|$)` reicht — jedes `..` ist verdächtig, nicht nur die hartcodierten Praefixe. |
-| 2.5.6 | `lib/Text/Treesitter/Bash/Security/Rule/PathTraversal.pm` | 26 | BUG | `(?:\A\|\s)(/proc/self\|/proc/\$\$\|/sys/fs)` — `\A` matched am String-Anfang. Fuer `cat /proc/self/maps` ist `cat ` davor (Space). Der Anchor `\A\|\s` trifft vor `cat ` nicht zu, weil `\A` am Anfang ist und `\s` nach `cat ` zaehlt. Also muss der Match direkt nach einem Whitespace oder am Anfang sein. Das funktioniert fuer `/proc/self/...` als eigenes Arg, aber `cat "-flag" /proc/self` matched wegen Whitespace davor. Verwirrend: zwei separate Branches die das gleiche Problem haben, doppelt unnoetig. Empfehlung: Vereinheitlichen. |
+| 2.5.5 | `lib/Text/Treesitter/Bash/Security/Rule/PathTraversal.pm` | 16 | BUG | The regex `(?:\.\./\|/etc/../\|/proc/../\|/sys/../)` catches `../` only at the start of **a path segment** that must have a hardcoded `/etc/../` directly before it. `cat /etc/foo/../shadow` (the real traversal form, because after `foo/..` it goes back to `etc`) is **NOT** matched. Recommendation: `\.\.(?:/\|$)` is enough — every `..` is suspicious, not just the hardcoded prefixes. |
+| 2.5.6 | `lib/Text/Treesitter/Bash/Security/Rule/PathTraversal.pm` | 26 | BUG | `(?:\A\|\s)(/proc/self\|/proc/\$\$\|/sys/fs)` — `\A` matches at the start of the string. For `cat /proc/self/maps` there is `cat ` in front (space). The anchor `\A\|\s` does not apply before `cat `, because `\A` is at the start and `\s` counts after `cat `. So the match must be directly after whitespace or at the start. That works for `/proc/self/...` as its own arg, but `cat "-flag" /proc/self` matches because of the whitespace before it. Confusing: two separate branches with the same problem, needlessly duplicated. Recommendation: unify. |
 
 #### UnquotedExpansion
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.5.7 | `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm` | 14 | BUG (false negative) | `$source !~ m{".*\$[a-zA-Z_]}` schliesst die ganze Source aus der Pruefung aus, sobald **irgendein** doppelt-gequoteter Variablen-Wert existiert. Beispiel: `echo "safe $foo" $bar/baz` — der negative Match sieht `"safe $foo"` und matched; die Rule ueberspringt ALLES, also wird `$bar/baz` (das gefaehrliche) nicht gemeldet. Empfehlung: per-Variable pruefen, nicht per-Source. |
-| 2.5.8 | `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm` | 14 | BUG (false negative) | Doppel-quoted String mit Variablen OHNE Slash-Danach wird auch nicht entdeckt. Aber das ist hier OK weil es nicht das Ziel ist. Jedoch: `${var}` und `$((...))` werden nicht gematcht (`$` gefolgt von `(`, `(`, oder `{`). Empfehlung: Pattern erweitern. |
-| 2.5.9 | `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm` | 14 | BUG (false positive) | Single-Quoted Strings wie `echo '$foo'` enthalten `$foo`, aber in single-quotes wird NICHT expandiert. Die Rule meldet das trotzdem als Risiko, weil sie `$foo` als bare findet. Empfehlung: Single-Quote-Kontext in der Source pruefen, oder auf den Tree-sitter-AST gehen (siehe treesitter-bash-security Skill §"Don't use ref to detect quoted strings"). |
-| 2.5.10 | `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm` | 22 | NIT | `substr($source, $pos + length($var), 1)` schaut nur 1 Zeichen nach dem Variablennamen. Wenn dort `} ` steht (`${var}`), dann trifft das nicht. Aber `$var}` als bare-Name matcht das Regex `\$[a-zA-Z_][a-zA-Z0-9_]*` garnicht. Edge-Case. |
-| 2.5.11 | `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm` | 23 | NIT | `m{[/\-\.]}` — Punkt wird auch getriggert, was bei `echo "$var.txt"` Sinn ergibt (Word-Splitting via IFS). Aber bei `echo "$var."` (Argument mit Punkt am Ende) ist das oft gewollt. Schwellwert-Sache. |
+| 2.5.7 | `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm` | 14 | BUG (false negative) | `$source !~ m{".*\$[a-zA-Z_]}` excludes the whole source from the check as soon as **any** double-quoted variable value exists. Example: `echo "safe $foo" $bar/baz` — the negative match sees `"safe $foo"` and matches; the rule skips EVERYTHING, so `$bar/baz` (the dangerous one) is not reported. Recommendation: check per variable, not per source. |
+| 2.5.8 | `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm` | 14 | BUG (false negative) | A double-quoted string with variables WITHOUT a slash after them is not detected either. But that is OK here because it is not the goal. However: `${var}` and `$((...))` are not matched (`$` followed by `(`, `(`, or `{`). Recommendation: extend the pattern. |
+| 2.5.9 | `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm` | 14 | BUG (false positive) | Single-quoted strings like `echo '$foo'` contain `$foo`, but single quotes do NOT expand. The rule still reports it as a risk because it finds `$foo` as bare. Recommendation: check the single-quote context in the source, or go to the tree-sitter AST (see treesitter-bash-security skill §"Don't use ref to detect quoted strings"). |
+| 2.5.10 | `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm` | 22 | NIT | `substr($source, $pos + length($var), 1)` looks at only 1 character after the variable name. If that is `} ` (`${var}`), it does not hit. But `$var}` as a bare name does not match the regex `\$[a-zA-Z_][a-zA-Z0-9_]*` at all. Edge case. |
+| 2.5.11 | `lib/Text/Treesitter/Bash/Security/Rule/UnquotedExpansion.pm` | 23 | NIT | `m{[/\-\.]}` — a dot also triggers, which makes sense for `echo "$var.txt"` (word splitting via IFS). But with `echo "$var."` (argument with a trailing dot) it is often intended. A threshold question. |
 
 #### EnvDangerousVars
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.5.12 | `lib/Text/Treesitter/Bash/Security/Rule/EnvDangerousVars.pm` | 27 | BUG (false positive) | `\b(?:export\s+)?\Q$var\E\b` — der `export`-Praefix ist optional, matched also auch `MY_LD_PRELOAD_TEST=foo`. Dank `\b` (Word-Boundary) greift das nur, wenn das letzte Zeichen von `$var` (z.B. `D` in `LD_PRELOAD`) nicht von einem Wortzeichen gefolgt wird. Aber `MY_LD_PRELOAD` endet auf `D`, das `_` davor ist Wortchar — `\b` dazwischen matched nicht. Also OK. Aber: `LD_PRELOAD_X` wuerde nicht matchen, weil `_` Wortzeichen ist. Korrekt. Edge-Case-Pass. |
-| 2.5.13 | `lib/Text/Treesitter/Bash/Security/Rule/EnvDangerousVars.pm` | 8-17 | ENHANCEMENT | Die Liste ist klein. Was fehlt: `PYTHONPATH` (Arbitrary-Code-Injection via `python`), `NODE_PATH` (analog), `PERL5LIB` / `PERL5OPT` (Perl Prepend und `-M` Flag), `RUBYLIB` / `RUBYOPT`, `IFS` (Word-Splitting), `PS4` (Debug-Source-Trigger in `set -x`), `PROMPT_COMMAND`, `SHELLOPTS`, `BASH_FUNC_*` (exportable Bash-Functions ab Bash 4.0). |
+| 2.5.12 | `lib/Text/Treesitter/Bash/Security/Rule/EnvDangerousVars.pm` | 27 | BUG (false positive) | `\b(?:export\s+)?\Q$var\E\b` — the `export` prefix is optional, so it also matches `MY_LD_PRELOAD_TEST=foo`. Thanks to `\b` (word boundary) this only applies when the last character of `$var` (e.g. `D` in `LD_PRELOAD`) is not followed by a word character. But `MY_LD_PRELOAD` ends in `D`, the `_` before it is a word char — `\b` in between does not match. So OK. But: `LD_PRELOAD_X` would not match, because `_` is a word character. Correct. Edge case passes. |
+| 2.5.13 | `lib/Text/Treesitter/Bash/Security/Rule/EnvDangerousVars.pm` | 8-17 | ENHANCEMENT | The list is small. Missing: `PYTHONPATH` (arbitrary code injection via `python`), `NODE_PATH` (likewise), `PERL5LIB` / `PERL5OPT` (Perl prepend and `-M` flag), `RUBYLIB` / `RUBYOPT`, `IFS` (word splitting), `PS4` (debug source trigger in `set -x`), `PROMPT_COMMAND`, `SHELLOPTS`, `BASH_FUNC_*` (exportable bash functions since Bash 4.0). |
 
 #### SensitiveAccess
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.5.14 | `lib/Text/Treesitter/Bash/Security/Rule/SensitiveAccess.pm` | 8-19 | BUG (false positive) | `/dev/` matched `/dev/null`, `/dev/zero` etc. — was extrem haeufig benutzt wird (`echo > /dev/null`, `dd if=/dev/zero`). Severity ist `low`, also nicht kritisch, aber `/dev/null` als "Device file access" mit niedriger Severity ist irrefuehrend. Empfehlung: Whitelist fuer `/dev/null`, `/dev/zero`, `/dev/std{in,out,err}`, `/dev/urandom`, `/dev/random`, `/dev/tty`. |
-| 2.5.15 | `lib/Text/Treesitter/Bash/Security/Rule/SensitiveAccess.pm` | 8-19 | ENHANCEMENT | Patterns sind sehr Unix-zentriert. Was fehlt: macOS Keychain, Windows-Pfade, Container-relevant (`/var/run/docker.sock`), Kernel-Module (`/lib/modules/`), Browser-Profiles (`~/.config/google-chrome/`), GnuPG (`~/.gnupg/`), `~/.netrc`, `~/.pgpass`. |
+| 2.5.14 | `lib/Text/Treesitter/Bash/Security/Rule/SensitiveAccess.pm` | 8-19 | BUG (false positive) | `/dev/` matches `/dev/null`, `/dev/zero` etc. — which are used extremely often (`echo > /dev/null`, `dd if=/dev/zero`). Severity is `low`, so not critical, but `/dev/null` as "Device file access" with low severity is misleading. Recommendation: whitelist `/dev/null`, `/dev/zero`, `/dev/std{in,out,err}`, `/dev/urandom`, `/dev/random`, `/dev/tty`. |
+| 2.5.15 | `lib/Text/Treesitter/Bash/Security/Rule/SensitiveAccess.pm` | 8-19 | ENHANCEMENT | The patterns are very Unix-centric. Missing: macOS Keychain, Windows paths, container-relevant (`/var/run/docker.sock`), kernel modules (`/lib/modules/`), browser profiles (`~/.config/google-chrome/`), GnuPG (`~/.gnupg/`), `~/.netrc`, `~/.pgpass`. |
 
 #### MissingAbsolutePath
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.5.16 | `lib/Text/Treesitter/Bash/Security/Rule/MissingAbsolutePath.pm` | 8-12 | BUG (false positive) | `%KNOWN_COMMANDS` ist handgepflegt. Fehlt: **Shell-Builtins** (`cd`, `pwd`, `echo`, `printf`, `read`, `test`, `[`, `[[`, `exit`, `return`, `set`, `unset`, `declare`, `typeset`, `local`, `export`, `eval`, `exec`, `source`, `.`, `alias`, `unalias`, `hash`, `type`, `command`, `builtin`, `shift`, `getopts`, `trap`, `wait`, `jobs`, `fg`, `bg`, `kill`, `logout`, `times`, `ulimit`, `umask`, `help`, `history`, `pushd`, `popd`, `dirs`, `shopt`, `complete`, `compgen`, `mapfile`, `readarray`). Jeder Aufruf eines Builtins ohne absoluten Pfad wird falsch positiv gemeldet. Empfehlung: Shell-Builtin-Whitelist hinzufuegen. |
-| 2.5.17 | `lib/Text/Treesitter/Bash/Security/Rule/MissingAbsolutePath.pm` | 27-34 | BUG | Wenn der Name nicht mit `[a-zA-Z_]` startet (also z.B. `1foo`, `(foo)`, `[foo]`), wird ein Finding generiert — aber das sind oft syntaktische Konstrukte, nicht Kommandos. Empfehlung: `return` ohne Finding fuer Namen die nicht mit `^[a-zA-Z_][a-zA-Z0-9_+\-.]*$` matchen. |
-| 2.5.18 | `lib/Text/Treesitter/Bash/Security/Rule/MissingAbsolutePath.pm` | 19-21 | NIT | `return if $name =~ m{/}` — Command mit Slash aber nicht absolut (`./script.sh`, `../bin/cmd`, `subdir/cmd`) wird uebersprungen. OK fuer `./` und `../` (eigene Guards). Aber `cmd/subcmd` ist nicht erfasst — wahrscheinlich fehlerhaft. Empfehlung: nur Pfade die mit `/` (absolut) oder `./`/`../` (relativ zur CWD) starten als "no flag needed" werten; sonstige relative Pfade sind verdächtig. |
-| 2.5.19 | `lib/Text/Treesitter/Bash/Security/Rule/MissingAbsolutePath.pm` | 8-12 | ENHANCEMENT | Die KNOWN_COMMANDS-Liste sollte aus dem System-PATH ableitbar sein (optional via Config), aber als Default-Whitelist sinnvoll. |
+| 2.5.16 | `lib/Text/Treesitter/Bash/Security/Rule/MissingAbsolutePath.pm` | 8-12 | BUG (false positive) | `%KNOWN_COMMANDS` is maintained by hand. Missing: **shell builtins** (`cd`, `pwd`, `echo`, `printf`, `read`, `test`, `[`, `[[`, `exit`, `return`, `set`, `unset`, `declare`, `typeset`, `local`, `export`, `eval`, `exec`, `source`, `.`, `alias`, `unalias`, `hash`, `type`, `command`, `builtin`, `shift`, `getopts`, `trap`, `wait`, `jobs`, `fg`, `bg`, `kill`, `logout`, `times`, `ulimit`, `umask`, `help`, `history`, `pushd`, `popd`, `dirs`, `shopt`, `complete`, `compgen`, `mapfile`, `readarray`). Every call of a builtin without an absolute path is reported as a false positive. Recommendation: add a shell builtin whitelist. |
+| 2.5.17 | `lib/Text/Treesitter/Bash/Security/Rule/MissingAbsolutePath.pm` | 27-34 | BUG | If the name does not start with `[a-zA-Z_]` (e.g. `1foo`, `(foo)`, `[foo]`), a finding is generated — but these are often syntactic constructs, not commands. Recommendation: `return` without a finding for names that do not match `^[a-zA-Z_][a-zA-Z0-9_+\-.]*$`. |
+| 2.5.18 | `lib/Text/Treesitter/Bash/Security/Rule/MissingAbsolutePath.pm` | 19-21 | NIT | `return if $name =~ m{/}` — a command with a slash but not absolute (`./script.sh`, `../bin/cmd`, `subdir/cmd`) is skipped. OK for `./` and `../` (their own guards). But `cmd/subcmd` is not covered — probably wrong. Recommendation: treat only paths starting with `/` (absolute) or `./`/`../` (relative to the CWD) as "no flag needed"; other relative paths are suspicious. |
+| 2.5.19 | `lib/Text/Treesitter/Bash/Security/Rule/MissingAbsolutePath.pm` | 8-12 | ENHANCEMENT | The KNOWN_COMMANDS list should be derivable from the system PATH (optionally via config), but makes sense as a default whitelist. |
 
 ### 2.6 `Checker.pm` Bugs
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 2.6.1 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 33-36 | BUG (API inconsistency) | `$rule->check($command)` kann zurueckgeben: nichts (DangerousFlags, SensitiveAccess, EnvDangerousVars, MissingAbsolutePath), einen einzelnen Hashref (DangerousFlags, SensitiveAccess, EnvDangerousVars), oder eine Liste (PathTraversal, UnquotedExpansion). In `Checker::check_commands`: `my @result = $rule->check($command); push @issues, @result if @result;` — bei single Hashref wird der Hashref zwangsweise in einen Key-Value-Pair-Liste flachgedrueckt? Nein, `@result = $hashref` macht eine 1-element-Liste. Aber bei `my @result = ...` und `$result` waere `(key1, value1, key2, value2)` nicht das gewollte Verhalten. **Aber** `$rule->check($command)` ist aufgerufen im **Scalar-Listen-Kontext** (`my @result = $rule->check(...)`). In Listenkontext gibt ein Rule-Sub entweder `()` oder `(hashref,)` oder `(hash1, hash2)` zurueck. Das matched. Aber: was, wenn eine Rule `(hashref)` zurueckgibt (also `(single_hash)`)? OK. Was, wenn `undef` zurueckgibt? `my @result = (undef)` — dann ist `@result = (undef)` und `if @result` ist **wahr** (Anzahl = 1), dann wird `push @issues, undef` was den Issues-Stack korrumpiert. Gluecklicherweise geben die existierenden Regeln `undef` zurueck via `return;` (leere Liste). Trotzdem: kein defensiver Guard. Empfehlung: `push @issues, grep { ref eq 'HASH' } $rule->check($command);` |
-| 2.6.2 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 14-22 | BUG (anti-pattern, getty-perl-core) | `require`-inline-Pattern existiert hier zwar nicht direkt, aber `Module::Load::load($class_name)` ist ein "lazy load" von Klassen, die der User als Strings in `rules => ['PathTraversal', ...]` reingibt. Das ist der einzige Fall, in dem `require`/`load` legitim ist (Klassenname kommt aus Config). Aber: in `check_source` Z. 45 steht `require Text::Treesitter::Bash;` — das ist **nicht** legitim (Klassenname statisch), und genau das getty-perl-core-Anti-Pattern (siehe §3.1). |
-| 2.6.3 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 17-18 | BUG (silently fails) | `load($class_name)` laedt das Modul, aber wenn `load` fehlschlaegt (Klasse existiert nicht), wirft `load` und das bricht den ganzen Audit. Wenn die Rule-Klasse geladen wird aber kein `check` definiert, kommt erst zur Laufzeit der `die`-Call in `Rule::check`. Empfehlung: Validierung bei `new()`: nach `load` pruefen ob `$class_name->can('check')` und sonst `croak` mit klarer Meldung. |
+| 2.6.1 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 33-36 | BUG (API inconsistency) | `$rule->check($command)` can return: nothing (DangerousFlags, SensitiveAccess, EnvDangerousVars, MissingAbsolutePath), a single hashref (DangerousFlags, SensitiveAccess, EnvDangerousVars), or a list (PathTraversal, UnquotedExpansion). In `Checker::check_commands`: `my @result = $rule->check($command); push @issues, @result if @result;` — is a single hashref forcibly flattened into a key-value pair list? No, `@result = $hashref` makes a 1-element list. But with `my @result = ...` and `$result`, `(key1, value1, key2, value2)` would not be the intended behavior. **However**, `$rule->check($command)` is called in **list context** (`my @result = $rule->check(...)`). In list context a rule sub returns either `()` or `(hashref,)` or `(hash1, hash2)`. That matches. But: what if a rule returns `(hashref)` (i.e. `(single_hash)`)? OK. What if it returns `undef`? `my @result = (undef)` — then `@result = (undef)` and `if @result` is **true** (count = 1), so `push @issues, undef` corrupts the issue stack. Fortunately the existing rules return the empty list via `return;`, not `undef`. Still: no defensive guard. Recommendation: `push @issues, grep { ref eq 'HASH' } $rule->check($command);` |
+| 2.6.2 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 14-22 | BUG (anti-pattern, getty-perl-core) | The inline `require` pattern does not exist directly here, but `Module::Load::load($class_name)` is a "lazy load" of classes the user passes as strings in `rules => ['PathTraversal', ...]`. That is the only case in which `require`/`load` is legitimate (the class name comes from config). But: `check_source` line 45 has `require Text::Treesitter::Bash;` — that is **not** legitimate (static class name), and exactly the getty-perl-core anti-pattern (see §3.1). |
+| 2.6.3 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 17-18 | BUG (silently fails) | `load($class_name)` loads the module, but if `load` fails (the class does not exist), `load` throws and that aborts the whole audit. If the rule class loads but defines no `check`, the `die` call in `Rule::check` only comes at runtime. Recommendation: validate in `new()`: after `load`, check whether `$class_name->can('check')` and otherwise `croak` with a clear message. |
 
 ---
 
-## 3. Robustheit / Perl-Idiome (getty-perl-core-Konformitaet)
+## 3. Robustness / Perl idioms (getty-perl-core conformance)
 
-### 3.1 `require` statt `use`
+### 3.1 `require` instead of `use`
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 3.1.1 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 45 | BUG (getty-perl-core) | `require Text::Treesitter::Bash;` innerhalb von `check_source`. Der Klassenname ist statisch und bekannt — getty-perl-core verbietet `require` als "lazy optimization". Empfehlung: oberhalb der Sub `use Text::Treesitter::Bash;` hinzufuegen. Konsequenz: minimal hoehere Startup-Zeit (ein `use` vs `require`), aber konsistent mit der Hausregel. |
+| 3.1.1 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | 45 | BUG (getty-perl-core) | `require Text::Treesitter::Bash;` inside `check_source`. The class name is static and known — getty-perl-core forbids `require` as a "lazy optimization". Recommendation: add `use Text::Treesitter::Bash;` above the sub. Consequence: minimally higher startup time (one `use` vs `require`), but consistent with the house rule. |
 
-### 3.2 Module-Loading
+### 3.2 Module loading
 
-Alle anderen `use`-Statements sind sauber, mit expliziten Import-Listen (`qw(...)`). Pflicht-Variante von getty-perl-core ist eingehalten.
+All other `use` statements are clean, with explicit import lists (`qw(...)`). The mandatory getty-perl-core variant is followed.
 
-### 3.3 Stil / Whitespace
+### 3.3 Style / whitespace
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 3.3.1 | (alle lib/*.pm) | - | NIT | **2-space-Indent ist sauber durchgehalten** (verifiziert via `cat -A` fuer Bash.pm, Checker.pm, Rule.pm, alle 6 Rule/*.pm und alle t/*.t). Keine Tabs gefunden. getty-perl-core-konform. |
-| 3.3.2 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 11 | NIT | Trailing comma: `'--force',` — getty-perl-core sagt: **No trailing commas at the end of multi-line lists**. `--recursive' => ...` ist die letzte Zeile, kein trailing comma. Aber Z. 11 (`--recursive' => ...`) ist die letzte — kein trailing comma. Konform. (Aber `t/10_commands.t` benutzt `=>`-Listen mit trailing commas — egal, getty-perl-core sagt explizit "in multi-line lists".) |
-| 3.3.3 | (mehrere) | - | NIT | Einige `=>` Listen enden ohne trailing comma (konsistent). OK. |
+| 3.3.1 | (all lib/*.pm) | - | NIT | **2-space indent is consistently kept** (verified via `cat -A` for Bash.pm, Checker.pm, Rule.pm, all 6 Rule/*.pm and all t/*.t). No tabs found. getty-perl-core conformant. |
+| 3.3.2 | `lib/Text/Treesitter/Bash/Security/Rule/DangerousFlags.pm` | 11 | NIT | Trailing comma: `'--force',` — getty-perl-core says: **No trailing commas at the end of multi-line lists**. `--recursive' => ...` is the last line, no trailing comma. But line 11 (`--recursive' => ...`) is the last one — no trailing comma. Conformant. (But `t/10_commands.t` uses `=>` lists with trailing commas — doesn't matter, getty-perl-core explicitly says "in multi-line lists".) |
+| 3.3.3 | (several) | - | NIT | Some `=>` lists end without a trailing comma (consistent). OK. |
 
 ### 3.4 `use strict; use warnings;`
 
-Alle .pm-Files und alle t/*.t haben `use strict;` und `use warnings;`. Konform.
+All .pm files and all t/*.t have `use strict;` and `use warnings;`. Conformant.
 
 ### 3.5 Versions
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 3.5.1 | (alle lib/*.pm) | - | NIT | `$VERSION = '0.002';` ist in allen 9 Files konsistent. Perl-core-Konvention: Getty-Distributions haben die **next-unreleased** Version im Repo (CPAN ist 0.001, Repo ist 0.002). `Changes` Z. 1 hat `{{$NEXT}}` als Marker — passt. Konsistent. |
-| 3.5.2 | `cpanfile` | 7 | NIT | `requires 'Text::Treesitter', '0.13';` — `Text::Treesitter` ist kein Getty-Modul, also keine getty-perl-core-Pflicht zu pinnen. Aber `Text::Treesitter::Bash` selbst ist nicht required (Self-Reference). OK. |
+| 3.5.1 | (all lib/*.pm) | - | NIT | `$VERSION = '0.002';` is consistent in all 9 files. Perl core convention: Getty distributions have the **next unreleased** version in the repo (CPAN is 0.001, repo is 0.002). `Changes` line 1 has `{{$NEXT}}` as marker — fits. Consistent. |
+| 3.5.2 | `cpanfile` | 7 | NIT | `requires 'Text::Treesitter', '0.13';` — `Text::Treesitter` is not a Getty module, so no getty-perl-core obligation to pin it. And `Text::Treesitter::Bash` itself is not required (self-reference). OK. |
 
 ### 3.6 Moose / OOP
 
-Das Projekt benutzt **kein** Moose/Moo. Plain OO mit `bless` und `use parent`. Das ist legitim fuer ein kleines Dist — getty-perl-core erlaubt explizit Moose-Freiheit. Aber: getty-perl-core erwaehnt Moose-Patterns als Defaults; hier ist die Abwesenheit eine bewusste Wahl, nicht ein Versehen.
+The project uses **no** Moose/Moo. Plain OO with `bless` and `use parent`. That is legitimate for a small dist — getty-perl-core explicitly allows going without Moose. But: getty-perl-core mentions Moose patterns as defaults; here the absence is a deliberate choice, not an oversight.
 
 ### 3.7 Path::Tiny
 
-Korrekt eingesetzt (`path(...)`, `->child(...)`, `->mkpath`, `->copy`, `->parent(...)`). getty-perl-core-konform.
+Used correctly (`path(...)`, `->child(...)`, `->mkpath`, `->copy`, `->parent(...)`). getty-perl-core conformant.
 
 ### 3.8 JSON
 
-Wird im Code nicht benutzt (Tree-Sitter-Bindings liefern direkt Perl-Objekte). OK.
+Not used in the code (the tree-sitter bindings return Perl objects directly). OK.
 
-### 3.9 Forbidden-Pattern-Check
+### 3.9 Forbidden pattern check
 
-| Pattern | Vorkommen |
+| Pattern | Occurrences |
 |---|---|
-| `require Foo` im Method-Body | `Checker.pm:45` — siehe 3.1.1 |
-| 4-space indent | Nicht gefunden (cat -A clean) |
-| `File::Spec` in new code | Nicht gefunden |
-| `Data::Dumper` | Nicht gefunden |
-| `$VERSION` aus Repo in cpanfile | Nicht vorhanden (keine Self-Reference) |
+| `require Foo` in a method body | `Checker.pm:45` — see 3.1.1 |
+| 4-space indent | Not found (cat -A clean) |
+| `File::Spec` in new code | Not found |
+| `Data::Dumper` | Not found |
+| `$VERSION` from the repo in cpanfile | Not present (no self-reference) |
 
 ---
 
-## 4. Fehlende Edge-Case-Tests
+## 4. Missing edge case tests
 
-Die existierenden Tests sind gut strukturiert (10_commands.t mit 11 Sub-Cases, 20_findings.t mit 7 Sub-Cases, 30_security.t mit 7 Sub-Cases). Aber sie decken viele Syntax-Konstrukte nicht ab:
+The existing tests are well structured (10_commands.t with 11 sub-cases, 20_findings.t with 7 sub-cases, 30_security.t with 7 sub-cases). But they do not cover many syntax constructs:
 
-| # | Konstrukt | Beispiel | Erwartung | Test fehlt |
+| # | Construct | Example | Expectation | Test missing |
 |---|---|---|---|---|
-| 4.1 | `\|&` Pipe-Failure | `curl x \|& sh` | network_to_shell-Finding | JA (kritisch, BUG 2.1.1) |
-| 4.2 | `time foo` | `time rm -rf /tmp` | Command extrahiert, name='time' | JA |
-| 4.3 | `time foo && bar` | - | time-Command mit after_op='&&' | JA |
-| 4.4 | `! cmd` Negation | `! rm -rf /tmp` | Inner-Command extrahiert, context=['negated'] | JA |
-| 4.5 | `cmd1; cmd2` Semicolon | `ls; pwd` | after_op=';', before_op=';' | nur als Teil von 10_commands.t Z.41 |
-| 4.6 | Here-String `cmd <<< $var` | `cat <<< "hello"` | cat extrahiert mit Source inkl. redirect | JA |
-| 4.7 | Here-Doc `cmd <<EOF ... EOF` | `cat <<EOF\nfoo\nEOF` | cat extrahiert, body-Text nicht als Command | JA |
-| 4.8 | Function-Def `foo() { bar; }` | - | bar extrahiert, ggf. function-name extrahiert | JA |
-| 4.9 | Alias `alias ll='ls -la'` | - | alias-Command extrahiert, argv=['alias', "ll='ls -la'"] | JA |
-| 4.10 | Arithmetic `$((x+y))` | `echo $((1+2))` | echo extrahiert, kein neuer Command | JA |
-| 4.11 | Brace-Expansion `{a,b,c}` | `echo {a,b,c}` | echo extrahiert, argv[1]='{a,b,c}' | JA |
-| 4.12 | Array `${arr[@]}` | `cat ${arr[@]}` | cat extrahiert, argv enthaelt ${arr[@]} | JA (BUG 2.3.3) |
-| 4.13 | Backticks `` `cmd` `` | `echo \`date\`` | echo extrahiert, date in context=[command_substitution] | JA (in 10_commands.t Z.218) |
-| 4.14 | Process-Substitution `<(cmd)` | `diff <(ls a) <(ls b)` | ls a und ls b beide extrahiert | JA |
-| 4.15 | Case-Statement | `case $x in a) cmd ;; esac` | cmd extrahiert | JA |
-| 4.16 | For-Loop | `for f in *.txt; do cat $f; done` | cat extrahiert, context enthaelt 'for_statement' | JA |
-| 4.17 | While-Loop | `while read x; do echo $x; done` | echo extrahiert | JA |
-| 4.18 | If/Then/Else | `if cmd; then other; fi` | cmd und other extrahiert | JA |
-| 4.19 | Subshell `(cmd1; cmd2)` | `(cd /tmp; ls)` | cd und ls beide extrahiert, subshell-context | JA |
-| 4.20 | Grouping `{ cmd1; cmd2; }` | `{ cd /tmp; ls; }` | cd und ls extrahiert | JA |
-| 4.21 | Background `cmd &` | `sleep 30 &` | sleep extrahiert mit after_op='&' | JA (BUG 2.2.6) |
-| 4.22 | Negation `! cmd` | - | siehe 4.4 | JA |
-| 4.23 | Newline-Separator | `cmd1\ncmd2` | newline als after_op | NIT (BUG 2.2.7) |
-| 4.24 | Empty Source | `''` | leerer commands-list, leerer findings-list | JA |
-| 4.25 | Invalid UTF-8 | `"\xff"` | croak mit klarer Meldung | JA (BUG 2.4.1) |
-| 4.26 | Nil-bytes | `"foo\0bar"` | croak oder klare Behandlung | JA |
-| 4.27 | Compound-Assignment | `export FOO="hello world"` | argv=['export', 'FOO="hello world"'] oder korrekt getrennt | JA (BUG 2.1.7) |
-| 4.28 | Quoted-With-Vars | `echo "safe $foo" $bar/baz` | $bar/baz wird als unquoted-expansion erkannt | JA (BUG 2.5.7) |
-| 4.29 | Single-Quoted-With-Dollar | `echo '$foo'` | KEIN unquoted-expansion Finding | JA (BUG 2.5.9) |
-| 4.30 | Builtin `cd /tmp` | - | KEIN MissingAbsolutePath Finding | JA (BUG 2.5.16) |
+| 4.1 | `\|&` pipe-failure | `curl x \|& sh` | network_to_shell finding | YES (critical, BUG 2.1.1) |
+| 4.2 | `time foo` | `time rm -rf /tmp` | command extracted, name='time' | YES |
+| 4.3 | `time foo && bar` | - | time command with after_op='&&' | YES |
+| 4.4 | `! cmd` negation | `! rm -rf /tmp` | inner command extracted, context=['negated'] | YES |
+| 4.5 | `cmd1; cmd2` semicolon | `ls; pwd` | after_op=';', before_op=';' | only as part of 10_commands.t line 41 |
+| 4.6 | Here-string `cmd <<< $var` | `cat <<< "hello"` | cat extracted with source incl. redirect | YES |
+| 4.7 | Here-doc `cmd <<EOF ... EOF` | `cat <<EOF\nfoo\nEOF` | cat extracted, body text not as a command | YES |
+| 4.8 | Function def `foo() { bar; }` | - | bar extracted, possibly function name extracted | YES |
+| 4.9 | Alias `alias ll='ls -la'` | - | alias command extracted, argv=['alias', "ll='ls -la'"] | YES |
+| 4.10 | Arithmetic `$((x+y))` | `echo $((1+2))` | echo extracted, no new command | YES |
+| 4.11 | Brace expansion `{a,b,c}` | `echo {a,b,c}` | echo extracted, argv[1]='{a,b,c}' | YES |
+| 4.12 | Array `${arr[@]}` | `cat ${arr[@]}` | cat extracted, argv contains ${arr[@]} | YES (BUG 2.3.3) |
+| 4.13 | Backticks `` `cmd` `` | `echo \`date\`` | echo extracted, date in context=[command_substitution] | YES (in 10_commands.t line 218) |
+| 4.14 | Process substitution `<(cmd)` | `diff <(ls a) <(ls b)` | ls a and ls b both extracted | YES |
+| 4.15 | Case statement | `case $x in a) cmd ;; esac` | cmd extracted | YES |
+| 4.16 | For loop | `for f in *.txt; do cat $f; done` | cat extracted, context contains 'for_statement' | YES |
+| 4.17 | While loop | `while read x; do echo $x; done` | echo extracted | YES |
+| 4.18 | If/then/else | `if cmd; then other; fi` | cmd and other extracted | YES |
+| 4.19 | Subshell `(cmd1; cmd2)` | `(cd /tmp; ls)` | cd and ls both extracted, subshell context | YES |
+| 4.20 | Grouping `{ cmd1; cmd2; }` | `{ cd /tmp; ls; }` | cd and ls extracted | YES |
+| 4.21 | Background `cmd &` | `sleep 30 &` | sleep extracted with after_op='&' | YES (BUG 2.2.6) |
+| 4.22 | Negation `! cmd` | - | see 4.4 | YES |
+| 4.23 | Newline separator | `cmd1\ncmd2` | newline as after_op | NIT (BUG 2.2.7) |
+| 4.24 | Empty source | `''` | empty commands list, empty findings list | YES |
+| 4.25 | Invalid UTF-8 | `"\xff"` | croak with a clear message | YES (BUG 2.4.1) |
+| 4.26 | NUL bytes | `"foo\0bar"` | croak or clear handling | YES |
+| 4.27 | Compound assignment | `export FOO="hello world"` | argv=['export', 'FOO="hello world"'] or split correctly | YES (BUG 2.1.7) |
+| 4.28 | Quoted with vars | `echo "safe $foo" $bar/baz` | $bar/baz is detected as unquoted expansion | YES (BUG 2.5.7) |
+| 4.29 | Single-quoted with dollar | `echo '$foo'` | NO unquoted-expansion finding | YES (BUG 2.5.9) |
+| 4.30 | Builtin `cd /tmp` | - | NO MissingAbsolutePath finding | YES (BUG 2.5.16) |
 
-Prioritaet: 4.1 (Sicherheits-BUG), 4.7 (kann Commands in Here-Doc-Body fälschlich matchen), 4.6, 4.21.
+Priority: 4.1 (security BUG), 4.7 (can wrongly match commands in a here-doc body), 4.6, 4.21.
 
 ---
 
-## 5. Vorschlaege fuer neue Rules
+## 5. Proposals for new rules
 
-Alle folgen dem Contract aus `.claude/skills/treesitter-bash-security/SKILL.md`.
+All follow the contract from `.claude/skills/treesitter-bash-security/SKILL.md`.
 
 ### 5.1 `DangerousCommands`
 
-Severity: `high` fuer `nc -e`, `mkfs`, `fdisk`, `shutdown`, `reboot`, `systemctl disable <service>`, `iptables -F`, `chmod 777`, `dd of=/dev/sd*`, `curl ... | bash` (redundant zu network_to_shell).
+Severity: `high` for `nc -e`, `mkfs`, `fdisk`, `shutdown`, `reboot`, `systemctl disable <service>`, `iptables -F`, `chmod 777`, `dd of=/dev/sd*`, `curl ... | bash` (redundant with network_to_shell).
 
 ```perl
 package Text::Treesitter::Bash::Security::Rule::DangerousCommands;
@@ -346,7 +346,7 @@ sub check {
 
 ### 5.2 `ForkBomb`
 
-Erkennt `:(){ :\|:& };:` und `bash -c ':() { :\|:& }; :'`.
+Detects `:(){ :\|:& };:` and `bash -c ':() { :\|:& }; :'`.
 
 ```perl
 package Text::Treesitter::Bash::Security::Rule::ForkBomb;
@@ -371,11 +371,11 @@ sub check {
 1;
 ```
 
-Besser: AST-basiert (function_definition mit body, der self-recursion + background macht). Aber die Regex-Variante ist ein pragmatischer Start. Siehe follow-up.
+Better: AST-based (function_definition with a body that does self-recursion + background). But the regex variant is a pragmatic start. See follow-up.
 
 ### 5.3 `CryptoMining`
 
-Erkennt typische Miner-Downloader und Mining-Pool-URLs.
+Detects typical miner downloaders and mining pool URLs.
 
 ```perl
 package Text::Treesitter::Bash::Security::Rule::CryptoMining;
@@ -414,7 +414,7 @@ sub check {
 
 ### 5.4 `InsecureDownload`
 
-Erkennt `curl`/`wget` ohne TLS-Verifikation: `--insecure`, `-k`, oder fehlendes `https://` zu HTTP-Endpunkten.
+Detects `curl`/`wget` without TLS verification: `--insecure`, `-k`, or a missing `https://` to HTTP endpoints.
 
 ```perl
 package Text::Treesitter::Bash::Security::Rule::InsecureDownload;
@@ -456,13 +456,13 @@ sub check {
 1;
 ```
 
-### 5.5 `SensitiveRedirect` (haengt an 2.2.3)
+### 5.5 `SensitiveRedirect` (depends on 2.2.3)
 
-Erkennt `> /etc/passwd`, `>> /etc/shadow`, `> /dev/sda` etc. Benoetigt den Redirects-Hash-Feld (siehe ENHANCEMENT 2.2.3).
+Detects `> /etc/passwd`, `>> /etc/shadow`, `> /dev/sda` etc. Needs the redirects hash field (see ENHANCEMENT 2.2.3).
 
 ### 5.6 `NetworkListener`
 
-Erkennt `nc -l`, `ncat -l`, `socat TCP-LISTEN`, `python -m http.server`, `php -S 0.0.0.0`, `ssh -R` (Reverse-Tunnel), `ssh -D` (SOCKS-Proxy).
+Detects `nc -l`, `ncat -l`, `socat TCP-LISTEN`, `python -m http.server`, `php -S 0.0.0.0`, `ssh -R` (reverse tunnel), `ssh -D` (SOCKS proxy).
 
 ```perl
 package Text::Treesitter::Bash::Security::Rule::NetworkListener;
@@ -502,158 +502,158 @@ sub check {
 
 ### 5.7 `PrivilegeEscalation`
 
-Erkennt `sudo su`, `sudo bash`, `sudo -i`, `su -`, `doas`, `pkexec`, `chmod u+s` (SetUID), `chmod g+s` (SetGID).
+Detects `sudo su`, `sudo bash`, `sudo -i`, `su -`, `doas`, `pkexec`, `chmod u+s` (SetUID), `chmod g+s` (SetGID).
 
 ---
 
-## 6. Dokumentations-Luecken
+## 6. Documentation gaps
 
 ### 6.1 POD in lib/*
 
-| # | Datei | Sev | Befund |
+| # | File | Sev | Finding |
 |---|-------|-----|--------|
-| 6.1.1 | (alle lib/**/*.pm) | ENHANCEMENT | **Jedes File hat nur `# ABSTRACT:` und keinen POD-Block.** Kein `=head1 NAME`, `=head1 SYNOPSIS`, `=head1 DESCRIPTION`, `=head1 METHODS`. CPAN-Index, `perldoc`, IDE-Tooltips sind leer. Empfehlung: per File mindestens NAME + SYNOPSIS + METHOD-Liste. |
-| 6.1.2 | `lib/Text/Treesitter/Bash.pm` | ENHANCEMENT | Felder des Command-Hash sind nirgends dokumentiert (nur im treesitter-bash-security Skill). Empfehlung: POD-Section "COMMAND HASH FIELDS" mit Tabelle. |
-| 6.1.3 | `lib/Text/Treesitter/Bash/Security/Rule.pm` | ENHANCEMENT | Die Klasse erlaubt 3 Rueckgabe-Formate (undef, single Hashref, Array of Hashrefs). Das ist nirgends dokumentiert. Empfehlung: im POD klar festhalten — der Skill tut es, der Code nicht. |
-| 6.1.4 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | ENHANCEMENT | Methoden `check_source` und `check_commands` haben keine POD. Empfehlung: SYNOPSIS mit beiden Aufruf-Pfaden. |
+| 6.1.1 | (all lib/**/*.pm) | ENHANCEMENT | **Every file has only `# ABSTRACT:` and no POD block.** No `=head1 NAME`, `=head1 SYNOPSIS`, `=head1 DESCRIPTION`, `=head1 METHODS`. The CPAN index, `perldoc` and IDE tooltips are empty. Recommendation: at least NAME + SYNOPSIS + method list per file. |
+| 6.1.2 | `lib/Text/Treesitter/Bash.pm` | ENHANCEMENT | The command hash fields are not documented anywhere (only in the treesitter-bash-security skill). Recommendation: a POD section "COMMAND HASH FIELDS" with a table. |
+| 6.1.3 | `lib/Text/Treesitter/Bash/Security/Rule.pm` | ENHANCEMENT | The class allows 3 return formats (undef, single hashref, array of hashrefs). This is not documented anywhere. Recommendation: state it clearly in the POD — the skill does, the code does not. |
+| 6.1.4 | `lib/Text/Treesitter/Bash/Security/Checker.pm` | ENHANCEMENT | The methods `check_source` and `check_commands` have no POD. Recommendation: a SYNOPSIS with both call paths. |
 
 ### 6.2 README
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 6.2.1 | `README.md` | 1-29 | ENHANCEMENT | Nur 28 Zeilen. Keine DESCRIPTION-Section, keine "How does it work?"-Section, keine Beispiele ueber das 3-Zeilen-Synopsis hinaus, keine LICENSE-Info, keine "Why?"-Begruendung. Empfehlung: Description, Architecture (kurz), mehrere Examples (Plugin-Rules, Custom-Rule), Limitations, Links zu Tree-sitter-bash und Text::Treesitter. |
+| 6.2.1 | `README.md` | 1-29 | ENHANCEMENT | Only 28 lines. No DESCRIPTION section, no "How does it work?" section, no examples beyond the 3-line synopsis, no LICENSE info, no "Why?" rationale. Recommendation: description, architecture (short), several examples (plugin rules, custom rule), limitations, links to tree-sitter-bash and Text::Treesitter. |
 
 ### 6.3 SECURITY.md / RULES.md / Cookbook
 
-| # | Datei | Sev | Befund |
+| # | File | Sev | Finding |
 |---|-------|-----|--------|
-| 6.3.1 | `docs/SECURITY-RESEARCH.md` | ENHANCEMENT | Existiert nicht. Der treesitter-bash-security Skill erwaehnt es: "Update `docs/SECURITY-RESEARCH.md` or write a `docs/RULES.md` mapping rule → threat." Empfehlung: Anlegen. |
-| 6.3.2 | `docs/RULES.md` | ENHANCEMENT | Existiert nicht (nur `docs/rules/` Verzeichnis, aber kein Inhalt). Sollte jede Rule dokumentieren: Threat-Model, False-Positive-Rate, Beispiele, Override-Pfad. |
-| 6.3.3 | `docs/COOKBOOK.md` | ENHANCEMENT | Existiert nicht. Empfehlung: "Wie schreibe ich eine eigene Rule?", "Wie integriere ich in einen Approval-Flow?", "Wie pinne ich die Tree-sitter-Grammars-Version?". |
+| 6.3.1 | `docs/SECURITY-RESEARCH.md` | ENHANCEMENT | Does not exist. The treesitter-bash-security skill mentions it: "Update `docs/SECURITY-RESEARCH.md` or write a `docs/RULES.md` mapping rule → threat." Recommendation: create it. |
+| 6.3.2 | `docs/RULES.md` | ENHANCEMENT | Does not exist (only a `docs/rules/` directory, but no content). It should document every rule: threat model, false positive rate, examples, override path. |
+| 6.3.3 | `docs/COOKBOOK.md` | ENHANCEMENT | Does not exist. Recommendation: "How do I write my own rule?", "How do I integrate it into an approval flow?", "How do I pin the tree-sitter grammar version?". |
 
 ### 6.4 Changes
 
-| # | Datei | Zeilen | Sev | Befund |
+| # | File | Lines | Sev | Finding |
 |---|-------|--------|-----|--------|
-| 6.4.1 | `Changes` | 1-11 | NIT | Nur ein Eintrag. Akzeptabel fuer v0.001, aber ab v0.002 wird mehr erwartet. Empfehlung: Beim Bump detailliert listen (welche Rules neu, welche Bugs gefixt, welche API-Aenderungen). |
+| 6.4.1 | `Changes` | 1-11 | NIT | Only one entry. Acceptable for v0.001, but from v0.002 on more is expected. Recommendation: list in detail at the bump (which rules are new, which bugs fixed, which API changes). |
 
-### 6.5 Beispiele in POD
+### 6.5 Examples in POD
 
-Keine. Keine einzige `=example`/`=for example`-Section in irgendeinem File.
+None. Not a single `=example`/`=for example` section in any file.
 
 ### 6.6 LICENSE / Contributors
 
-| # | Datei | Sev | Befund |
+| # | File | Sev | Finding |
 |---|-------|-----|--------|
-| 6.6.1 | top-level `LICENSE` | ENHANCEMENT | Nicht im Repo-Root (das Share-LICENSE wird vom Walker kopiert). `dist.ini` setzt `license = Perl_5`, aber CPAN-User brauchen die Datei im Dist-Archive. Empfehlung: prüfen, ob `[@Author::GETTY]` eine LICENSE-File providet oder manuelles Anlegen noetig ist. |
+| 6.6.1 | top-level `LICENSE` | ENHANCEMENT | Not in the repo root (the share LICENSE is copied by the walker). `dist.ini` sets `license = Perl_5`, but CPAN users need the file in the dist archive. Recommendation: check whether `[@Author::GETTY]` provides a LICENSE file or whether creating one by hand is needed. |
 
 ---
 
-## 7. API-Design-Notes
+## 7. API design notes
 
-### 7.1 Inkonsistenz: `commands()` vs. `findings()`
+### 7.1 Inconsistency: `commands()` vs. `findings()`
 
-**Beobachtung:**
-- `commands()` gibt eine **strukturierte Liste von Hash-Refs** zurueck mit klar definierten Feldern (`source`, `command`, `argv`, `start_byte`, `end_byte`, `context`, `before_op`, `after_op`).
-- `findings()` gibt eine **lose Liste von Hash-Refs** zurueck mit unterschiedlichen Feldern pro Finding-Typ:
+**Observation:**
+- `commands()` returns a **structured list of hashrefs** with clearly defined fields (`source`, `command`, `argv`, `start_byte`, `end_byte`, `context`, `before_op`, `after_op`).
+- `findings()` returns a **loose list of hashrefs** with different fields per finding type:
   - `shell_interpreter` / `dynamic_shell` / `shell_eval`: `{ type, message, command }`
   - `network_to_shell`: `{ type, message, commands => [ $left, $right ] }`
-- `Security::Rule::*->check()` gibt ein **drittes Format** zurueck: `{ rule, severity, message, command, argv, source, arg, var, ... }` (felder je Rule anders).
+- `Security::Rule::*->check()` returns a **third format**: `{ rule, severity, message, command, argv, source, arg, var, ... }` (fields differ per rule).
 
-**Konsequenz:** Wer ein Findings-Format konsumieren will, muss drei Formate parsen. Ein Aufrufer kann `findings()` und `check_source()` nicht in dieselbe Liste packen, ohne Konflikte zu loesen (`type` vs `rule`, `commands` vs `argv`).
+**Consequence:** anyone who wants to consume a findings format has to parse three formats. A caller cannot put `findings()` and `check_source()` into the same list without resolving conflicts (`type` vs `rule`, `commands` vs `argv`).
 
-**Empfehlung:** Vereinheitlichen. Vorschlag:
+**Recommendation:** unify. Proposal:
 
 ```perl
-# Alle Findings haben:
+# All findings have:
 {
   type     => 'shell_interpreter' | 'network_to_shell' | 'dangerous_flags' | ...,
-  rule     => 'DangerousFlags' | 'NetworkToShell' | ...,   # die Klasse die es gefunden hat
+  rule     => 'DangerousFlags' | 'NetworkToShell' | ...,   # the class that found it
   severity => 'low' | 'medium' | 'high',
   message  => 'Human-readable explanation',
-  # Context (eines oder mehrere):
+  # Context (one or more):
   command  => $cmd_basename,
-  argv     => \@argv,           # falls relevant
-  source   => $source_text,     # falls relevant
-  arg      => $matched_arg,     # falls Single-Arg
-  commands => [ \@left, \@right ], # falls Paar/Liste
+  argv     => \@argv,           # if relevant
+  source   => $source_text,     # if relevant
+  arg      => $matched_arg,     # if single arg
+  commands => [ \@left, \@right ], # if pair/list
   start_byte => $cmd_start,
   end_byte   => $cmd_end,
 }
 ```
 
-### 7.2 Inkonsistenz: `check_source` vs `check_commands`
+### 7.2 Inconsistency: `check_source` vs `check_commands`
 
-- `check_commands(@commands)` erwartet eine **Liste** von Hashes.
-- `check_source($source)` erwartet einen **Skalar**.
+- `check_commands(@commands)` expects a **list** of hashes.
+- `check_source($source)` expects a **scalar**.
 
-Beide haben ihre Berechtigung (Caller hat schon geparst vs. nicht), aber: `check_commands` deserialisiert seine `@commands` als Liste (`my @commands`), aber `commands()` returnt auch eine Liste. Das ist OK.
+Both have their justification (the caller has already parsed vs. not), but: `check_commands` takes its `@commands` as a list (`my @commands`), and `commands()` also returns a list. That is OK.
 
-**Issue:** `check_commands` akzeptiert KEINE Hash-Ref-Liste, sondern immer eine flache Liste. Wenn der Caller `my $cmds = [ {...}, {...} ]; $checker->check_commands(@$cmds);` schreibt, geht das. Aber wenn er `$checker->check_commands(\@cmds)` schreibt, geht es schief (der innere Array-Ref wird als ein "command" interpretiert, was eine Method-Call-Warnung produziert).
+**Issue:** `check_commands` does NOT accept a hashref list, always a flat list. If the caller writes `my $cmds = [ {...}, {...} ]; $checker->check_commands(@$cmds);`, that works. But if they write `$checker->check_commands(\@cmds)`, it goes wrong (the inner array ref is interpreted as one "command", which produces a method call warning).
 
-**Empfehlung:** Alternative Signature `$checker->check_commands(\@cmds)` und `$checker->check_commands(@cmds)` beide akzeptieren, oder dokumentieren dass nur die flache Liste geht.
+**Recommendation:** accept both signatures `$checker->check_commands(\@cmds)` and `$checker->check_commands(@cmds)`, or document that only the flat list works.
 
-### 7.3 Sollte `commands()` auch `findings()` liefern koennen?
+### 7.3 Should `commands()` also be able to return `findings()`?
 
-Aktuell hat `commands()` keine Finding-Logik. Ein Aufrufer muss `findings()` separat aufrufen.
+Currently `commands()` has no finding logic. A caller has to call `findings()` separately.
 
-**Frage:** Sollte `commands()` optional `findings` als Feld pro Command liefern? Vorschlag:
+**Question:** should `commands()` optionally return `findings` as a field per command? Proposal:
 
 ```perl
 $bash->commands($source, { with_findings => 1 });
-# liefert commands mit zusaetzlichem Feld findings => [ {...}, {...} ]
+# returns commands with an additional field findings => [ {...}, {...} ]
 ```
 
 **Pro:**
-- Ein Aufruf, alle Daten.
-- Konsumenten koennen pro-Command Findings aggregieren.
+- One call, all data.
+- Consumers can aggregate findings per command.
 
 **Con:**
-- `commands()` wird zur Policy-Schicht (Security-Checker-Logik).
-- Verletzt Separation of Concerns (Parsing vs. Security).
-- Mehrfacher Aufruf (gleiches Source, andere Rule-Sets) wuerde Findings redundant berechnen.
+- `commands()` becomes the policy layer (security checker logic).
+- Violates separation of concerns (parsing vs. security).
+- Repeated calls (same source, different rule sets) would compute findings redundantly.
 
-**Empfehlung:** Nein, `commands()` bleibt rein. Wenn Bedarf entsteht, einen separaten `audit()`-Endpunkt anbieten, der `commands()` + `Checker` kombiniert.
+**Recommendation:** no, `commands()` stays pure. If the need arises, offer a separate `audit()` endpoint that combines `commands()` + `Checker`.
 
-### 7.4 Sollte `findings()` Rule-pluggable sein?
+### 7.4 Should `findings()` be rule-pluggable?
 
-Aktuell ist `findings()` hartcodiert mit 4 Finding-Typen. Der `Security::Checker` hat einen eigenen Rule-Mechanismus, aber er kann die eingebauten Findings nicht emulieren oder ersetzen.
+Currently `findings()` is hardcoded with 4 finding types. `Security::Checker` has its own rule mechanism, but it cannot emulate or replace the built-in findings.
 
-**Empfehlung:** Den eingebauten `findings()`-Code in Rules verschieben (`ShellInterpreter`, `DynamicShell`, `ShellEval`, `NetworkToShell`), dann hat der User die Wahl: `findings()` = Default-Rule-Set (jetzt hartcodiert), und `Security::Checker` = Custom-Rule-Set. Siehe Befund 2.1.2.
+**Recommendation:** move the built-in `findings()` code into rules (`ShellInterpreter`, `DynamicShell`, `ShellEval`, `NetworkToShell`); then the user has the choice: `findings()` = default rule set (hardcoded now), and `Security::Checker` = custom rule set. See finding 2.1.2.
 
-### 7.5 Rule-Return-Konsistenz
+### 7.5 Rule return consistency
 
-Aktuell:
-- `DangerousFlags`, `SensitiveAccess`, `EnvDangerousVars`, `MissingAbsolutePath`: return single Hash oder `undef`.
-- `PathTraversal`, `UnquotedExpansion`: return Array of Hashes.
+Currently:
+- `DangerousFlags`, `SensitiveAccess`, `EnvDangerousVars`, `MissingAbsolutePath`: return a single hash or `undef`.
+- `PathTraversal`, `UnquotedExpansion`: return an array of hashes.
 
-**Empfehlung:** **Immer Array.** Selbst single-Hash-Regeln geben `[ $hash ]` zurueck oder `()`. Dann ist `Checker::check_commands` trivial (`push @issues, @{ $rule->check($command) };`) und die API ist konsistent.
+**Recommendation:** **always an array.** Even single-hash rules return `[ $hash ]` or `()`. Then `Checker::check_commands` is trivial (`push @issues, @{ $rule->check($command) };`) and the API is consistent.
 
-### 7.6 Sollte `Checker` `Source` exposen?
+### 7.6 Should `Checker` expose `Source`?
 
-Aktuell bekommt jede Rule nur den Command-Hash. Wenn die Rule auf den ganzen Source-Text zugreifen will (fuer Cross-Command-Checks), muss sie via `argv` und `source` rekonstruieren. `EnvDangerousVars` braucht z.B. den Source weil `export LD_PRELOAD=...` nicht im argv steht, sondern am Anfang des Commands.
+Currently each rule only gets the command hash. If a rule wants to access the whole source text (for cross-command checks), it has to reconstruct it via `argv` and `source`. `EnvDangerousVars`, for example, needs the source because `export LD_PRELOAD=...` is not in argv but at the start of the command.
 
-**Verbesserung:** Der Command-Hash enthaelt bereits `source` (das ist der Source-Text des Command-Subtrees, also nur dieser Command, nicht der ganze Bash-Source). Cross-Command-Checks (wie `network_to_shell`) brauchen aber Zugriff auf die ganze Liste — der macht das aktuell in `Bash::findings` direkt. Wenn das in Rules verschoben wird (siehe 2.1.2), muss der Checker einen zusaetzlichen `audit($source)`-Endpunkt bekommen, der die ganze Liste sieht.
-
----
-
-## 8. Zusammenfassung — Top-Priority-Fixes
-
-Wenn nur die naechsten 1-2 Tage Zeit sind, hier die hoechste Prioritaet (Reihenfolge = Reihenfolge der Umsetzung):
-
-1. **2.1.1** `|&` in network_to_shell ergaenzen. (5 Minuten, klarer Security-BUG.)
-2. **3.1.1** `require Text::Treesitter::Bash;` in `Checker.pm` zu `use` migrieren. (1 Minute, getty-perl-core-Pflicht.)
-3. **2.5.1** Dead `%DANGEROUS_FLAGS` entweder nutzen oder loeschen. (5 Minuten.)
-4. **2.5.7** `UnquotedExpansion` per-Variable pruefen statt per-Source. (30 Minuten, klare FN-Fix.)
-5. **2.5.5** PathTraversal `..` generisch matchen statt `/etc/../`-Praefix. (5 Minuten.)
-6. **2.5.16** Shell-Builtins zur MissingAbsolutePath-Whitelist. (15 Minuten.)
-7. **2.2.1** Subshell/Process-Substitution `before_op` propagieren. (30 Minuten.)
-8. **2.2.6** Background-Operator `&` in `_operator_text`. (5 Minuten.)
-9. **2.3.3** `array`, `subscript`, `regex`, `extglob_pattern` zu `_is_argument_node`. (10 Minuten.)
-10. **6.1.1** Mindestens NAME + SYNOPSIS + METHODS-POD in jedem File. (1-2 Stunden, haengt an der Writers-Disziplin.)
-11. **4.1** Test fuer `curl x |& sh` (gehoert zu Fix #1). (10 Minuten.)
-12. **2.1.2** `Bash::findings` in 4 Rule-Klassen aufspalten. (1-2 Stunden, Refactor mit Tests.)
+**Improvement:** the command hash already contains `source` (the source text of the command subtree, i.e. only this command, not the whole bash source). Cross-command checks (like `network_to_shell`) need access to the whole list, though — that is currently done directly in `Bash::findings`. If this moves into rules (see 2.1.2), the checker needs an additional `audit($source)` endpoint that sees the whole list.
 
 ---
 
-*Report-Ende. Stand: 2026-08-15, gegen `33d5e82`.*
+## 8. Summary — top-priority fixes
+
+If there are only the next 1-2 days, here is the highest priority (order = order of implementation):
+
+1. **2.1.1** Add `|&` to network_to_shell. (5 minutes, clear security BUG.)
+2. **3.1.1** Migrate `require Text::Treesitter::Bash;` in `Checker.pm` to `use`. (1 minute, getty-perl-core obligation.)
+3. **2.5.1** Either use or delete the dead `%DANGEROUS_FLAGS`. (5 minutes.)
+4. **2.5.7** Check `UnquotedExpansion` per variable instead of per source. (30 minutes, clear FN fix.)
+5. **2.5.5** Match PathTraversal `..` generically instead of the `/etc/../` prefix. (5 minutes.)
+6. **2.5.16** Add shell builtins to the MissingAbsolutePath whitelist. (15 minutes.)
+7. **2.2.1** Propagate subshell/process substitution `before_op`. (30 minutes.)
+8. **2.2.6** Background operator `&` in `_operator_text`. (5 minutes.)
+9. **2.3.3** Add `array`, `subscript`, `regex`, `extglob_pattern` to `_is_argument_node`. (10 minutes.)
+10. **6.1.1** At least NAME + SYNOPSIS + METHODS POD in every file. (1-2 hours, depends on the writers' discipline.)
+11. **4.1** Test for `curl x |& sh` (belongs to fix #1). (10 minutes.)
+12. **2.1.2** Split `Bash::findings` into 4 rule classes. (1-2 hours, refactor with tests.)
+
+---
+
+*End of report. As of: 2026-08-15, against `33d5e82`.*
