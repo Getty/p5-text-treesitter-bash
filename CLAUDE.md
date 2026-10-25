@@ -15,8 +15,9 @@ dzil build && dzil test                       # Dist::Zilla, [@Author::GETTY]
 prove -lv t/                                  # or run the suite directly
 ```
 
-The first test run per machine compiles `tree-sitter-bash.so` from
-`share/tree-sitter-bash/src/` into a `TMPDIR` tempdir — slow once, then cached.
+Every process that parses compiles `tree-sitter-bash.so` from
+`share/tree-sitter-bash/src/` into a `TMPDIR` tempdir once — slow per process (so per
+test file), shared by all instances in it, removed at exit, not cached across runs.
 
 ## Delegation
 

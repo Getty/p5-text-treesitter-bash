@@ -75,8 +75,8 @@ Only the local working-tree state counts when reasoning about what is "done".
 ## Project hazards
 
 - **Grammar is vendored, not a dependency.** `share/tree-sitter-bash/` is upstream
-  0.20.5, copied unmodified. It is compiled once at runtime into a `TMPDIR` tempdir; the
-  first test run per machine is slow and touches no repo files. Never hand-edit
+  0.20.5, copied unmodified. It is compiled at runtime into a `TMPDIR` tempdir, once per
+  process (removed at exit, not cached across runs); that touches no repo files. Never hand-edit
   `src/parser.c` / `src/scanner.c` — a grammar change is an upstream version bump.
 - **argv is raw, `command` is cleaned.** The single trap behind most rule bugs: `argv`
   entries keep quotes/whitespace/expansions and `simple_command_entry` splits them on

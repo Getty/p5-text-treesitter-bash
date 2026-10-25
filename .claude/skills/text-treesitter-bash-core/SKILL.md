@@ -43,9 +43,10 @@ Key files:
 - `lib/Text/Treesitter/Bash/Security/Rule/*.pm` — one file per rule, subclass of `Rule`.
 - `share/tree-sitter-bash/` — vendored upstream grammar 0.20.5 (`LICENSE`,
   `package.json`, `src/{parser.c,scanner.c,node-types.json}`), unmodified. At runtime
-  it is copied into a tempdir (`_build_runtime_lang_dir`) and compiled once
-  (`Text::Treesitter::Language::build`, `TMPDIR`-cachable). First run per machine is
-  slow; later runs are fast if the compiled `.so` stays put.
+  it is copied into a tempdir (`_build_runtime_lang_dir`, `CLEANUP => 1`) and compiled
+  at most once per process (`Text::Treesitter::Language::build`), shared by all
+  instances. The tempdir is removed at process exit: nothing is cached across runs, so
+  every process that parses pays the build.
 
 ## Data shapes
 

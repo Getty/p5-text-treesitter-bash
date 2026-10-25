@@ -31,8 +31,9 @@ Never `git commit`: leave the tree commit-ready and report what changed and why,
 
 ## Verification
 
-- Full suite: `prove -lv t/` — the first run per machine compiles `tree-sitter-bash.so`
-  from `share/tree-sitter-bash/src/` into a tempdir; it is slow once, then cached.
+- Full suite: `prove -lv t/` — every process that parses compiles `tree-sitter-bash.so`
+  from `share/tree-sitter-bash/src/` into a tempdir once; slow per process (so per test
+  file), shared by all instances in it, removed at exit, not cached across runs.
 - One file / one subtest: `prove -lv t/30_security.t -- 'PathTraversal'`.
 - A new or changed rule needs a `t/30_security.t` subtest with both a true and a false
   positive, plus a `Changes` line and a synchronized `$VERSION` bump across all `lib/`
