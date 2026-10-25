@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-10-25T01:38:15Z
+claimed_by: offen-2610
+class: standard
+completed: 2026-10-25T01:38:15Z
+created: 2026-08-31T04:29:04Z
+id: 5
+priority: low
+started: 2026-10-25T01:16:59Z
+status: done
+tags:
+- rules
+title: negated context extracted but no rule consumes it
+updated: 2026-10-25T01:38:15Z
+---
+
+Commands under `time` or `!`-negation are extracted with context => ["negated"], but no Security::Rule uses that signal yet. Opportunity for a rule or drop the unused context.
+
+Commit 9719fcd. Entscheidung: negated bleibt, ohne Regel. Das Feld negated auf dem Command-Hash ist dokumentiert (POD) und getestet (t/40_edge_cases.t), es zu entfernen wäre ein Bruch für Nutzer; eine Regel ist unbegründet, denn Negation macht einen Befehl nicht sicherer. Gemessen: time ist keine Negation, time sleep 1 ergibt einen einzigen Befehl time ohne negated; die Karte lag dort falsch. Nur der Skill wurde korrigiert, kein Code geändert.
