@@ -134,8 +134,10 @@ clean, and never add a path that returns before they are appended.
   `t/40_edge_cases.t`.
 - `|&` is a pipe like `|`: `findings` accepts both for `network_to_shell`
   (`t/20_findings.t`, `t/50_findings_extra.t`). No special case beyond that.
-- `time` and `!`-negation before a command extract with `context => ['negated']`, but
-  no rule uses that yet.
+- `!`-negation extracts the inner commands with `context => ['negated']` and
+  `negated => 1`. Public, documented and tested; deliberately no rule uses it (negation
+  does not make a command safer). `time cmd` is not negation: `time` is parsed as a
+  plain command with `cmd` in its argv.
 - `EnvDangerousVars` / `UnquotedExpansion` regex-match `command->{source}`; quotes and
   whitespace in the node source can produce false positives — see `docs/CODE-ANALYSIS.md`.
 - `Checker::check_source` uses `require Text::Treesitter::Bash;` — a `getty-perl-core`
