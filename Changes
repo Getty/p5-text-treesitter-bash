@@ -126,6 +126,16 @@
     node --print and --eval=CODE count too. Quoted flags ("-c") are
     seen. Flags that take an argument (perl -Mstrict, python -Wignore)
     do not make a cluster look like a code flag
+  - Fix findings(): shell_interpreter, dynamic_shell and network_to_shell
+    go by the command that really runs. sudo and doas (with their
+    options), env (options, NAME=value words, -S), exec, nohup, command,
+    time, nice and xargs are looked through, so curl x | sudo bash,
+    env bash -c id and xargs sh -c id are reported like the bare shell
+  - Fix findings(): command words are compared after quote removal, so
+    \bash, b"a"sh and 'ba'sh are bash
+  - New finding type unresolved_command for a command word that is only
+    an expansion ($SHELL -c id, ${cmd}, $(which sh)), so a caller can
+    treat it as unknown instead of harmless
 
 0.001     2026-04-24 02:54:50Z
 

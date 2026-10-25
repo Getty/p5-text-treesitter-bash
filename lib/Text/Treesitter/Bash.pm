@@ -234,6 +234,15 @@ Recognised C<type> values:
 C<sh>, C<bash>, C<dash>, C<zsh>, C<fish>, C<ksh> invoked directly.
 Often a sign that the caller wants to run arbitrary string.
 
+This and C<dynamic_shell> and C<network_to_shell> go by the command that
+really runs: C<sudo>, C<doas> (with their options), C<env> (with its
+options and C<NAME=value> words), C<exec>, C<nohup>, C<command>, C<time>,
+C<nice> and C<xargs> are looked through, so C<sudo bash>, C<env bash -c id>
+and C<xargs sh -c ...> are reported like the bare shell. The command word
+is compared after quote removal: C<\bash>, C<b"a"sh> and C<"bash"> are
+C<bash>. Other wrappers (C<timeout>, C<setsid>, ...) are not looked
+through.
+
 =item dynamic_shell
 
 C<bash -c ...>, C<perl -e ...>, C<ruby -e ...>, C<python -c ...>,
@@ -255,6 +264,15 @@ is not a pipe). Classic "curl|sh" install vector. The fetcher may
 also sit in a substitution of the command in front of the pipe
 (C<echo "$(curl ...)" | sh>); C<commands> then holds that fetcher and
 the shell.
+
+=item unresolved_command
+
+The command word (or the command a wrapper runs) is nothing but an
+expansion: C<$SHELL -c ...>, C<${cmd}>, C<$(which sh)>, a backtick
+substitution, C<$1>. What it starts cannot be told before it runs, so the
+other checks have nothing to go by; a caller should treat it as unknown,
+not as harmless. C<echo $SHELL> and C<ls $(which sh)> have the expansion
+as an argument and do not produce it.
 
 =item parse_error
 
@@ -369,21 +387,36 @@ sub findings {
   my @parse_errors = $self->_parse_errors_from_tree($tree);
   my @findings;
 
-  for my $command (@commands) {
-    my $name = _command_basename( $command->{command} );
+  # What each command runs, once its wrappers (`sudo`, `env`, ...) are
+  # looked through: the raw words from the command that really starts.
+  my @running = map { [ _unwrap_command( $_->{argv} ) ] } @commands;
 
-    if ( _is_shell_interpreter($name) ) {
+  for my $index ( 0 .. $#commands ) {
+    my $command = $commands[$index];
+    my $name    = _command_basename( $command->{command} );
+    my @words   = @{ $running[$index] };
+    my $runs    = _command_basename( $words[0] );
+
+    if ( _is_shell_interpreter($runs) ) {
       push @findings, {
         type    => 'shell_interpreter',
-        message => "shell interpreter '$command->{command}' is executed",
+        message => "shell interpreter '$words[0]' is executed",
         command => $command
       };
     }
 
-    if ( _is_dynamic_shell( $name, $command->{argv} ) ) {
+    if ( _is_dynamic_shell( $runs, \@words ) ) {
       push @findings, {
         type    => 'dynamic_shell',
-        message => "dynamic code flag used with '$command->{command}'",
+        message => "dynamic code flag used with '$words[0]'",
+        command => $command
+      };
+    }
+
+    if ( _is_expansion_word( $words[0] ) ) {
+      push @findings, {
+        type    => 'unresolved_command',
+        message => "command word '$words[0]' is an expansion, what it runs cannot be told",
         command => $command
       };
     }
@@ -408,7 +441,7 @@ sub findings {
     # `^\|` would also match `||` (OR), which is not a pipe. Anchor the
     # alternation explicitly to `|` and `|&` only.
     next unless ( $right->{before_op} // '' ) =~ m/^\|(?:&)?\z/;
-    next unless _is_shell_interpreter( _command_basename( $right->{command} ) );
+    next unless _is_shell_interpreter( _command_basename( $running[$index][0] ) );
 
     # The left-hand side of the pipe is the nearest earlier command on
     # the same substitution level, not simply the previous entry: the
@@ -416,15 +449,15 @@ sub findings {
     # those fetch goes down the pipe as well (`echo "$(curl ...)" | sh`),
     # so a fetcher among them counts like the left-hand side itself.
     my $depth = _substitution_depth( $right->{context} );
-    my ( $left, $fetcher );
+    my ( $left, $fetcher, $fetcher_word );
 
     for ( my $before = $index - 1; $before >= 0; $before-- ) {
       my $candidate       = $commands[$before];
       my $candidate_depth = _substitution_depth( $candidate->{context} );
 
       last if $candidate_depth < $depth;
-      $fetcher = $candidate
-        if _is_network_fetcher( _command_basename( $candidate->{command} ) );
+      ( $fetcher, $fetcher_word ) = ( $candidate, $running[$before][0] )
+        if _is_network_fetcher( _command_basename( $running[$before][0] ) );
       next if $candidate_depth > $depth;
 
       $left = $candidate;
@@ -436,7 +469,7 @@ sub findings {
 
     push @findings, {
       type     => 'network_to_shell',
-      message  => "network command '$fetcher->{command}' pipes into shell '$right->{command}'",
+      message  => "network command '$fetcher_word' pipes into shell '$running[$index][0]'",
       commands => [ $fetcher, $right ]
     };
   }
@@ -1155,9 +1188,170 @@ sub _clean_word {
 sub _command_basename {
   my ( $command ) = @_;
 
-  $command = _clean_word($command);
+  # Bash runs `\bash`, `b"a"sh` and `"bash"` as `bash`.
+  $command = _remove_quotes( _clean_word($command) );
   $command =~ s{\A.*/}{};
   return $command;
+}
+
+# Quote removal as Bash does it to a word: '...' is literal, "..." keeps
+# its text (a backslash only escapes $ ` " \), a backslash outside quotes
+# escapes the next character, $'...' without escapes is its text. What
+# is left of an unbalanced quote stays as it is.
+sub _remove_quotes {
+  my ( $word ) = @_;
+
+  my $plain = q{};
+
+  while ( length $word ) {
+    if ( $word =~ s/\A'([^']*)'//
+      || $word =~ s/\A\$'([^'\\]*)'// )
+    {
+      $plain .= $1;
+    }
+    elsif ( $word =~ s/\A"((?:[^"\\]|\\.)*)"//s ) {
+      my $inner = $1;
+      $inner =~ s/\\([\$`"\\])/$1/g;
+      $plain .= $inner;
+    }
+    elsif ( $word =~ s/\A\\(.)//s ) {
+      $plain .= $1;
+    }
+    elsif ( $word =~ s/\A([^'"\\]+)// ) {
+      $plain .= $1;
+    }
+    else {
+      return $plain . $word;
+    }
+  }
+
+  return $plain;
+}
+
+# A command word that is nothing but an expansion (`$SHELL`, `${cmd}`,
+# `$(which sh)`, a backtick substitution, `$1`) or an escaped `$'...'`
+# string: what runs is not known before it runs.
+sub _is_expansion_word {
+  my ( $word ) = @_;
+
+  $word = _clean_word($word);
+
+  return 1 if $word =~ m/\A\$(?:[a-zA-Z_][a-zA-Z0-9_]*|\{.*\}|\(.*\)|[0-9\@*#?!\$-])\z/s;
+  return 1 if $word =~ m/\A`.*`\z/s;
+  return 1 if $word =~ m/\A\$'[^']*\\/;
+
+  return 0;
+}
+
+# Commands that run another command given as their arguments. `value`:
+# short options that take an argument (separate, or attached when more
+# of the cluster follows), `attached`: those whose argument is never a
+# separate word, `long`: long options taking a separate argument,
+# `assign`: NAME=value words may precede the command, `noexec`: options
+# that make the command not run anything (`command -v`).
+my %WRAPPER = (
+  sudo => {
+    value  => 'ugphCDrtTUR',
+    long   => [qw( user group host prompt close-from chdir chroot role type command-timeout other-user )],
+    assign => 1,
+  },
+  doas    => { value => 'uC' },
+  env     => { value => 'uCS', long => [qw( unset chdir split-string )], assign => 1 },
+  exec    => { value => 'a' },
+  nohup   => {},
+  command => { noexec => 'vV' },
+  time    => { value => 'fo', long => [qw( format output )] },
+  nice    => { value => 'n', long => ['adjustment'] },
+  xargs   => {
+    value    => 'INLPsdEa',
+    attached => 'ile',
+    long     => [qw( arg-file delimiter max-args max-lines max-procs max-chars process-slot-var )],
+  },
+);
+
+# The words of the command that really starts when $argv runs: wrapper
+# commands (`sudo -u root env A=b nohup bash -c id`) are looked through,
+# with their options and assignments skipped. Without a wrapped command
+# (`sudo -i`, `command -v bash`) the wrapper itself is what runs.
+sub _unwrap_command {
+  my ( $argv ) = @_;
+
+  my @words = @$argv;
+  return (q{}) unless @words;
+
+  while ( my $spec = $WRAPPER{ _command_basename( $words[0] ) } ) {
+    my ( $at, @split ) = _wrapped_command_at( $spec, \@words );
+    last unless $at;
+    @words = ( @split, @words[ $at .. $#words ] );
+  }
+
+  return @words;
+}
+
+# Index of the wrapped command in @$words (the wrapper being word 0), and
+# the words of an `env -S 'string'` argument, which stand in front of it.
+# Nothing when the wrapper wraps no command.
+sub _wrapped_command_at {
+  my ( $spec, $words ) = @_;
+
+  my $index = 1;
+  my @split;
+
+  while ( $index < @$words ) {
+    my $word = _remove_quotes( _clean_word( $words->[$index] ) );
+
+    if ( $word eq '--' ) {
+      $index++;
+      last;
+    }
+
+    if ( $word =~ m/\A--([^=]+)(=.*)?\z/s ) {
+      my ( $long, $attached ) = ( $1, $2 );
+      my $takes = grep { $_ eq $long } @{ $spec->{long} // [] };
+      $index += $takes && !defined $attached ? 2 : 1;
+      next;
+    }
+
+    if ( $word =~ m/\A-(.+)\z/s ) {
+      my $cluster  = $1;
+      my $consumed = 1;
+
+      for my $at ( 0 .. length($cluster) - 1 ) {
+        my $flag = substr( $cluster, $at, 1 );
+
+        return if index( $spec->{noexec} // q{}, $flag ) >= 0;
+        last   if index( $spec->{attached} // q{}, $flag ) >= 0;
+        next   if index( $spec->{value} // q{}, $flag ) < 0;
+
+        my $rest = substr( $cluster, $at + 1 );
+        if ( !length $rest ) {
+          $consumed = 2;
+          $rest = $index + 1 < @$words ? _remove_quotes( _clean_word( $words->[ $index + 1 ] ) ) : q{};
+        }
+        # env -S 'cmd args': the string is split into the command line.
+        @split = grep { length } split m/\s+/, $rest if $flag eq 'S' && ( $spec->{value} // q{} ) =~ m/S/;
+        last;
+      }
+
+      $index += $consumed;
+      next;
+    }
+
+    if ( $word eq '-' ) {
+      $index++;
+      next;
+    }
+
+    if ( $spec->{assign} && $word =~ m/\A[a-zA-Z_][a-zA-Z0-9_]*=/ ) {
+      $index++;
+      next;
+    }
+
+    last;
+  }
+
+  return ( $index, @split ) if $index < @$words || @split;
+  return;
 }
 
 sub _is_shell_interpreter {

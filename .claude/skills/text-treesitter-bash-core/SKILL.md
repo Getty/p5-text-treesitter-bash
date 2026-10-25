@@ -64,7 +64,8 @@ Key files:
 }
 
 # Finding (findings returns HashRefs):
-{ type => 'shell_interpreter' | 'dynamic_shell' | 'shell_eval' | 'network_to_shell', ... }
+{ type => 'shell_interpreter' | 'dynamic_shell' | 'shell_eval' | 'network_to_shell'
+       | 'unresolved_command', ... }
 
 # ParseError (parse_errors returns HashRefs; findings appends them last):
 { type => 'parse_error', message => ..., source => '"oops', start_byte => 5, end_byte => 10,
@@ -109,7 +110,10 @@ clean, and never add a path that returns before they are appended.
   one, then walks the next child with `before_op` set to the same string. **Both the
   previous and following command get it** — `cmd1 && cmd2` → cmd1 `after_op=&&`,
   cmd2 `before_op=&&`.
-- `findings` uses `before_op`/`after_op` to detect `network → shell` pipes.
+- `findings` uses `before_op`/`after_op` to detect `network → shell` pipes. It
+  classifies by the command that really runs (`_unwrap_command` looks through `sudo`,
+  `doas`, `env`, `exec`, `nohup`, `command`, `time`, `nice`, `xargs`) and compares the
+  command word after `_remove_quotes`; `command` itself stays as the walker built it.
 - `command` is `_clean_word`-ed (whitespace + quote strip) for the **command name
   only**. `argv` entries are **raw** — may be quoted (`"foo"`, `'bar'`), contain
   whitespace, or be expansions like `$(cmd)`. Don't regex-match argv naively without
