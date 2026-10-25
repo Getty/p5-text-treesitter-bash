@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-10-25T01:38:00Z
+claimed_by: offen-2610
+class: standard
+completed: 2026-10-25T01:38:00Z
+created: 2026-08-31T04:28:45Z
+id: 2
+priority: medium
+started: 2026-10-25T01:16:42Z
+status: done
+tags:
+- rules
+title: 'False positives: regex rules match across quotes/whitespace'
+updated: 2026-10-25T01:38:00Z
+---
+
+EnvDangerousVars and UnquotedExpansion regex-match command->{source}; quotes and whitespace in the node source can produce false positives. See docs/CODE-ANALYSIS.md. Scope matching to per-command node source.
+
+Commit 5be3e22. Gemessen: EnvDangerousVars feuerte auf bloße Erwähnungen (echo ENV, grep IFS file, /etc/ENV.conf, gelesene Variable, Strings); beide Regeln meldeten verschachtelte Substitutionen doppelt, außen und innen; UnquotedExpansion meldete Zuweisungen, Heredoc-Körper, doppelte Klammern, Kommentare und übersah ein x/y nach einem ANSI-C-String. Entscheidung: neuer Helfer Rule->mask_source (Scanner, positionsgleich, leert verschachtelte Substitutionen, Kommentare, Heredocs und Gequotetes) statt neuem Feld im Command-Hash. EnvDangerousVars feuert nur auf NAME=-Wörter; das Befehlswort ist dort unbekannt, daher zählt auch echo LD_PRELOAD=x. Test t/85_rule_source_scope.t, gegen altes lib rot. Also found: 1) timeout, setsid, stdbuf, ionice, watch, chroot werden von findings nicht durchschaut. 2) shell_eval (eval, source, Punkt) schaut nicht durch Wrapper, z.B. time eval x. 3) curl x | cat | sh ergibt kein network_to_shell, die linke Seite muss selbst Fetcher sein. 4) Der Newline-Zweig in _operator_text ist toter Code, nicht entfernt.
