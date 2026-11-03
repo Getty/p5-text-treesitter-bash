@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::NetworkListener;
 # ABSTRACT: Detect commands that open network listeners
-our $VERSION = '0.001';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

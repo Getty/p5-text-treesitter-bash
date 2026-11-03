@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::DangerousExpansion;
 # ABSTRACT: Detect dangerous parameter-expansion forms (CVE-2026-29783 class)
-our $VERSION = '0.003';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

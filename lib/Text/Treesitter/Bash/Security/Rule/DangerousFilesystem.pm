@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::DangerousFilesystem;
 # ABSTRACT: Detect dangerous filesystem commands (disk wipe, raw write to devices, etc.)
-our $VERSION = '0.002';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

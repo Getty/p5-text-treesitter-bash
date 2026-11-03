@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule;
 # ABSTRACT: Base class for security rules
-our $VERSION = '0.003';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 

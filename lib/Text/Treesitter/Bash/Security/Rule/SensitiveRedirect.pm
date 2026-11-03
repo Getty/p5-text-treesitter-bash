@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::SensitiveRedirect;
 # ABSTRACT: Detect redirections to sensitive file paths or block devices
-our $VERSION = '0.001';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

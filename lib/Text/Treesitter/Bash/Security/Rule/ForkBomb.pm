@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::ForkBomb;
 # ABSTRACT: Detect the classic :(){ :|:& };: fork-bomb pattern
-our $VERSION = '0.001';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

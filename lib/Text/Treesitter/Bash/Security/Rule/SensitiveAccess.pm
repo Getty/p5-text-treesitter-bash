@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::SensitiveAccess;
 # ABSTRACT: Detect access to sensitive files and directories
-our $VERSION = '0.005';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

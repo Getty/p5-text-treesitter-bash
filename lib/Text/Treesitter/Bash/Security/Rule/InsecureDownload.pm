@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::InsecureDownload;
 # ABSTRACT: Detect downloads with disabled or plaintext transport
-our $VERSION = '0.001';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

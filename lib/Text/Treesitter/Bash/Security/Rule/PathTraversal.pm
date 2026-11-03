@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::PathTraversal;
 # ABSTRACT: Detect path traversal patterns in commands
-our $VERSION = '0.005';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

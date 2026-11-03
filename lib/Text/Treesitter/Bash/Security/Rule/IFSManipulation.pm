@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::IFSManipulation;
 # ABSTRACT: Detect IFS manipulation that breaks word-splitting invariants
-our $VERSION = '0.002';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Rule::ReverseShellSink;
 # ABSTRACT: Detect common reverse-shell command patterns
-our $VERSION = '0.002';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use parent 'Text::Treesitter::Bash::Security::Rule';

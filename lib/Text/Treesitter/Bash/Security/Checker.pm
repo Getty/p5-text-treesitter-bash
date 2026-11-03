@@ -1,6 +1,6 @@
 package Text::Treesitter::Bash::Security::Checker;
 # ABSTRACT: Run security rules against parsed Bash commands
-our $VERSION = '0.004';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use Carp qw( croak );
