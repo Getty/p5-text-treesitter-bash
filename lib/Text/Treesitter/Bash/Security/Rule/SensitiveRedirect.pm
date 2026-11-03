@@ -25,8 +25,8 @@ or operator matches a sensitive destination:
 
 =back
 
-Input redirects (C<E<lt>) and duplicates (C<E<gt>E<amp>1>) are matched
-by target on the same way.
+Input redirects (C<E<lt>>) and duplicates (C<E<gt>E<amp>1>) are matched
+by target in the same way.
 
 =head1 SEE ALSO
 
