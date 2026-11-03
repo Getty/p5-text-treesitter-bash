@@ -1,3 +1,4 @@
+#!/usr/bin/env perl
 use Test2::V0;
 use File::Temp qw( tempdir );
 use Path::Tiny qw( path );
