@@ -1019,26 +1019,33 @@ sub _command_entry {
   my ( $self, $node, $context, $before_op, $negated ) = @_;
 
   my ( $name, @args );
-  my @fields = $node->field_names_with_child_nodes;
 
-  while (@fields) {
-    my $field = shift @fields;
-    my $child = shift @fields;
+  # The children are classified by type and position, not by field name:
+  # tree-sitter 0.20.x (Debian's libtree-sitter) does not report the
+  # inherited `argument` field for every child: the field list of
+  # `tar -czf backup.tar.gz ./data` names `tar` and `-czf` only.
+  # Everything behind the command_name is an argument, except redirects
+  # and comments; leading assignments and subshells sit before the name.
+  for my $child ( $node->child_nodes ) {
+    my $child_type = $child->type;
 
-    if ( defined $field && $field eq 'name' ) {
-      $name = _clean_word( $child->text );
+    if ( !defined $name ) {
+      $name = _clean_word( $child->text ) if $child_type eq 'command_name';
+      next;
     }
-    elsif ( defined $field && $field eq 'argument' ) {
-      # process_substitution nodes are tagged as `argument` fields in
-      # the bash grammar, but they are wrapper constructs (process
-      # substitution creates an FD, not a string value). Skipping them
-      # here leaves them to be walked by _walk_command_children, which
-      # adds the inner command with the correct context. command_substitution
-      # (i.e. $(...) / backticks), on the other hand, IS a real argument
-      # whose value is the captured stdout of the inner command — keep it.
-      next if $child->type eq 'process_substitution';
-      push @args, $child->text;
-    }
+
+    # process_substitution nodes are wrapper constructs (process
+    # substitution creates an FD, not a string value). Skipping them
+    # here leaves them to be walked by _walk_command_children, which
+    # adds the inner command with the correct context. command_substitution
+    # (i.e. $(...) / backticks), on the other hand, IS a real argument
+    # whose value is the captured stdout of the inner command - keep it.
+    next if $child_type eq 'file_redirect'
+      || $child_type eq 'herestring_redirect'
+      || $child_type eq 'comment'
+      || $child_type eq 'process_substitution';
+
+    push @args, $child->text;
   }
 
   $name //= _clean_word( _first_child_text($node) );

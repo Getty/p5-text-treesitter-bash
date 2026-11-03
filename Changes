@@ -1,5 +1,9 @@
 {{$NEXT}}
 
+  - commands() keeps every argument of a command on tree-sitter 0.20.x
+    libraries (Debian's libtree-sitter) too: arguments are recognised by
+    node type behind the command name instead of by field name, which
+    those libraries do not report for every argument
   - commands() returns a command wherever Bash executes one. Commands
     in $(...), backticks and <(...) / >(...) are extracted from
     assignments (x=$(cmd), prefix assignments X=$(cmd) command, arrays,

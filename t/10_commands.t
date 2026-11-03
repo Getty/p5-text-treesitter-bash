@@ -306,4 +306,18 @@ is command_summary('rm -rf /tmp & sleep 5'),
   ],
   'background & sets before_op on the next command but not after_op on the previous';
 
+# Every word behind the command name is an argument, however many follow
+# (tree-sitter 0.20.x reports the argument field for the first one only).
+is command_summary('tar -czf backup.tar.gz ./data a b c > out.tar # note'),
+  [
+    {
+      command   => 'tar',
+      argv      => [ 'tar', '-czf', 'backup.tar.gz', './data', 'a', 'b', 'c' ],
+      before_op => undef,
+      after_op  => undef,
+      context   => []
+    }
+  ],
+  'all arguments are kept, redirects and comments are not arguments';
+
 done_testing;
