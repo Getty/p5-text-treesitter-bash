@@ -1,145 +1,83 @@
 {{$NEXT}}
 
-  - commands() keeps every argument of a command on tree-sitter 0.20.x
-    libraries (Debian's libtree-sitter) too: arguments are recognised by
-    node type behind the command name instead of by field name, which
-    those libraries do not report for every argument
-  - commands() returns a command wherever Bash executes one. Commands
-    in $(...), backticks and <(...) / >(...) are extracted from
-    assignments (x=$(cmd), prefix assignments X=$(cmd) command, arrays,
-    subscripts), export / declare / local / readonly / typeset / unset,
-    [ ], [[ ]] and (( )), the command word ($(cmd) arg), redirect
-    targets and herestrings (> $(cmd), < <(cmd), <<< "$(cmd)") and
-    heredoc bodies with an unquoted delimiter - in addition to
-    arguments, case and parameter expansions. The pipeline or list
-    behind a heredoc operator (cat <<EOF | sh, cat <<EOF && cmd) is
-    extracted with before_op / after_op set. findings() and the
-    Security::Checker rules see all of these
-  - before_op / after_op connect commands of the same level, and a
-    redirect is recorded on the command it belongs to; neither ends up
-    on a command substituted inside that command
-    (echo $(id) > /etc/passwd: the redirect is on echo)
-  - network_to_shell also fires when a substitution sits between the
-    fetcher and the pipe (curl "http://x/$(hostname)" | sh,
-    X=$(id) curl http://x | sh)
-  - POD: new LIMITATIONS section listing the substitutions the 0.20.5
-    grammar does not parse and the walker therefore cannot reach
-  - Source tree-sitter cannot parse is reported instead of passing as
-    harmless. findings() appends one `parse_error` finding per
-    unparsable region (unterminated quote, `$(` without `)`, stray
-    token, Bash the 0.20.5 grammar does not know such as `!(*.txt)`),
-    with message, start_byte / end_byte, source and - where the parser
-    had to make up a token - missing. Security::Checker->check_source
-    appends the same as an issue with rule `ParseError`, severity
-    `high`. Findings and issues from the parsable parts are unchanged
-  - New method parse_errors($source) returning those regions on their
-    own
-  - Security::Checker->new accepts `parse_errors => 0` to switch the
-    ParseError issue off (default: on)
-  - POD: commands() documents that its result is best effort for
-    unparsable source
-  - Fix Bash.pm: build the vendored grammar at most once per process
-    instead of once per instance, so every check_source call shares one
-    compiled tree-sitter-bash.so instead of copying ~10 MB and running
-    gcc each time. A build that vanishes (e.g. a forked child outliving
-    its parent) is rebuilt; a failed build is retried in the same
-    tempdir. Test: t/96_grammar_build_once.t
-  - New rule: InsecureDownload (high/medium) — curl/wget/fetch with
-    TLS verification disabled (-k, --insecure, --no-check-certificate,
-    --no-cert-check) or plaintext http:// URLs. Skips URLs inside
-    -H / --header / --data-urlencode argument values
-  - New rule: NetworkListener (high/medium/low) — nc/ncat listeners,
-    socat TCP-LISTEN, ssh -R reverse tunnels and -D SOCKS proxies,
-    plus one-liner web servers (python -m http.server, php -S,
-    ruby -run -e httpd, npx http-server). php -S escalates to high
-    when bound to 0.0.0.0, downgrades to low when bound to localhost
-  - New rule: ForkBomb (high) — self-recursive function with
-    backgrounding: :(){ :|:& };: and named variants. Detected by
-    inspecting each function_definition's body for self-recursion
-    plus | or & operators
-  - New rule: PrivilegeEscalation (high/medium) — sudo/doas/pkexec
-    opening root shells (positional shell name or -i/-s/--login flag,
-    or sudo su chain), su to a privileged user, chmod SetUID/SetGID
-    (symbolic u+s/g+s/+s and numeric 4755/2755/6755 — leading octal
-    digit inspected), systemd-run --user --scope
-  - EnvDangerousVars: add BASH_FUNC_ prefix matching (BASH_FUNC_*
-    exports), Git worktree vars (GIT_WORK_TREE, GIT_INDEX_FILE),
-    runtime preload vars (PYTHONSTARTUP, NODE_OPTIONS, PERL5OPT,
-    RUBYOPT)
-  - SensitiveAccess: extend with 13 additional credential paths
-    (.docker/config.json, .gnupg/private-keys, .git-credentials,
-    .netrc, .pypirc, .npmrc, .cargo/credentials, gcloud / azure / gh
-    configs, /proc/*/environ, /etc/gshadow, /etc/sudoers.d/)
-  - UnquotedExpansion: include leading $ in captured var so the
-    rule returns $bar instead of bar
-  - Add `requires 'Encode';` (Bash.pm uses Encode::decode for UTF-8
-    validation)
-  - Sync docs/SECURITY.md and docs/RULES.md with current rule state
-  - Tests: add 38 new subtests for InsecureDownload, NetworkListener,
-    ForkBomb, PrivilegeEscalation in t/70_new_rules.t (now 133 tests)
-  - Add full POD to all shipped modules (Text::Treesitter::Bash,
-    Security::Checker, Security::Rule, all 6 Rule classes)
-  - Add docs/SECURITY.md, docs/RULES.md, docs/CODE-ANALYSIS.md,
-    docs/SECURITY-RESEARCH.md, docs/SIMILAR-PROJECTS.md,
-    docs/ALIEN-TREE-SITTER-PROPOSAL.md
-  - Add project-local Claude skill treesitter-bash-security
-  - Fix Checker.pm: hoist `require Text::Treesitter::Bash` to top-level `use`
-    (was a perl-core violation: lazy optimization via require)
-  - Walker: add background operator `&` to `_operator_text`
-  - Walker: extend `_is_argument_node` with array, subscript, regex,
-    extglob_pattern, arithmetic_expansion, brace_expression
-  - DangerousFlags: rewrite on top of a data table; was dead-code (the
-    `%DANGEROUS_FLAGS` hash was defined but never read)
-  - DangerousExpansion: use single quotes around `${var@P/Q}` message
-    (avoids Perl `@P` array-interpolation warning)
-  - MissingAbsolutePath: allow shell builtins (cd, echo, read, exit,
-    return, pwd, set, unset, alias, export, ...) and add common package
-    managers / build tools / monitors to the allowlist
-  - New rule: IFSManipulation (high) — IFS= overrides and $IFS-bound
-    expansions
-  - New rule: DangerousExpansion (high) — ${!var}, ${var@P},
-    ${var=value}, nested $(...) in ${...} (CVE-2026-29783 class)
-  - New rule: ReverseShellSink (high) — nc -e, ncat -e, socat exec:,
-    bash -i with /dev/tcp, ssh ProxyCommand, mkfifo
-  - New rule: DangerousFilesystem (high/medium) — dd of=/dev/sdX,
-    mkfs*, fdisk, parted, : > /etc/..., truncate -s 0 system paths,
-    shred, mount / loop / crypto
-  - SensitiveAccess: extend with 13 additional credential paths
-    (.docker/config.json, .gnupg/private-keys, .git-credentials,
-    .netrc, .pypirc, .npmrc, .cargo/credentials, gcloud / azure / gh
-    configs, /proc/*/environ, /etc/gshadow, /etc/sudoers.d/)
-  - Tests: add t/40_edge_cases.t, t/50_findings_extra.t,
-    t/60_rule_edge_cases.t, t/70_new_rules.t
-  - Static verification: all 12 modules and all 8 test files pass
-    `perl -c` against stubbed Text::Treesitter dependency
-  - Bump $VERSION to 0.003 across all 11 modules
-  - Fix EnvDangerousVars and UnquotedExpansion: each looks at the text
-    of its own command only. A variable name that is merely mentioned
-    (echo ENV, grep IFS file, /etc/ENV.conf, inside a string, read as
-    $LD_PRELOAD) no longer fires; EnvDangerousVars wants an assignment
-    (NAME=value, export, env). UnquotedExpansion ignores quotes,
-    escapes, comments, heredoc bodies, [[ ]] and assignment values
-    (DIR=$HOME/bin), and no longer misses $x/y after a $'...' string.
-    A command nested in $(...), backticks or <(...) is reported once,
-    for itself, not again for the command around it
-  - New helper Security::Rule->mask_source($source) for rules that
-    match on the text of one command
-  - Fix findings(): dynamic_shell reads short options as clusters, so
-    bash -lc, sh -ec, perl -le, perl -0777e, python3 -Bc, ruby -ne and
-    node -pe are code passed as a string like bash -c always was, and
-    node --print and --eval=CODE count too. Quoted flags ("-c") are
-    seen. Flags that take an argument (perl -Mstrict, python -Wignore)
-    do not make a cluster look like a code flag
-  - Fix findings(): shell_interpreter, dynamic_shell and network_to_shell
-    go by the command that really runs. sudo and doas (with their
-    options), env (options, NAME=value words, -S), exec, nohup, command,
-    time, nice and xargs are looked through, so curl x | sudo bash,
-    env bash -c id and xargs sh -c id are reported like the bare shell
-  - Fix findings(): command words are compared after quote removal, so
-    \bash, b"a"sh and 'ba'sh are bash
+  - Requires Alien::Tree::Sitter 0.001: the tree-sitter headers for the
+    grammar build come from there, and the grammar is built once per
+    process and shared by every instance
+  - parse() croaks with a clear message on invalid UTF-8 and on NUL
+    bytes, and reports the compiler output when the grammar build fails
+  - commands() returns a command wherever Bash executes one: inside
+    $(...), backticks and <(...) / >(...) in assignments (x=$(cmd),
+    X=$(cmd) command, arrays, subscripts), export / declare / local /
+    readonly / typeset / unset, [ ], [[ ]] and (( )), the command word,
+    redirect targets, herestrings and heredoc bodies with an unquoted
+    delimiter. The pipeline or list behind a heredoc operator
+    (cat <<EOF | sh) is extracted with before_op / after_op set
+  - commands() keeps every argument on tree-sitter 0.20.x libraries,
+    Debian's libtree-sitter included
+  - commands() takes the argv of export, declare, unset and test from
+    the syntax tree, so export FOO="hello world" stays one argument
+    and declare -i x=1 keeps -i
+  - New command fields: negated => 1 for commands under !, test => 1
+    for [ ] and [[ ]], and function => 1 for function definitions,
+    which appear as entries of their own. The enclosing if, for, while
+    and case appear in context. A redirect is recorded on the command
+    it belongs to, and before_op / after_op connect commands of the
+    same level
+  - New parse_errors($source) returns the regions tree-sitter could not
+    parse. findings() reports each as a parse_error finding, and
+    Security::Checker->check_source as an issue of rule ParseError with
+    severity high, so "no findings" means the source parsed completely.
+    Security::Checker->new( parse_errors => 0 ) switches this off
   - New finding type unresolved_command for a command word that is only
-    an expansion ($SHELL -c id, ${cmd}, $(which sh)), so a caller can
-    treat it as unknown instead of harmless
+    an expansion ($SHELL -c id, ${cmd}, $(which sh))
+  - findings() classifies by the command that really runs: sudo, doas,
+    env, exec, nohup, command, time, nice and xargs are looked through,
+    and quotes and escapes in the command word are removed
+    (\bash, b"a"sh), so curl x | sudo bash and xargs sh -c id are
+    reported like the bare shell
+  - findings() reads short-option clusters for dynamic_shell
+    (bash -lc, sh -ec, perl -le, python3 -Bc, node -pe) and recognises
+    csh, tcsh, ash, busybox, python variants such as pypy, jython and
+    micropython, and nushell
+  - network_to_shell fires when a substitution sits between the fetcher
+    and the pipe (curl "http://x/$(hostname)" | sh) and for |&; a ||
+    between fetcher and shell does not fire it
+  - Security::Checker croaks when a rule class or object has no check
+    method, and ignores rule results that are not hashes
+  - New rules: SensitiveRedirect, InsecureDownload, NetworkListener,
+    ForkBomb, PrivilegeEscalation, IFSManipulation, DangerousExpansion,
+    ReverseShellSink and DangerousFilesystem
+  - DangerousFlags is limited to the commands where the flags matter
+    (rm, mv, cp, find, chmod, chown, chgrp, rsync, tar, zip, unzip,
+    git), needs both force and recursive, and matches short flags
+    case-insensitively and inside clusters (-rf, -fR, -RF)
+  - SensitiveAccess covers more credential stores (.docker/config.json,
+    .gnupg/private-keys, .git-credentials, .netrc, .pypirc, .npmrc,
+    .cargo/credentials, .pgpass, gcloud, azure and gh configs,
+    browser profiles, macOS Keychain, the Docker socket, kernel module
+    paths, /proc/*/environ, /etc/gshadow, /etc/sudoers.d/) and lets
+    harmless /dev/null, /dev/zero, /dev/std*, /dev/*random and
+    /dev/fd* through
+  - EnvDangerousVars covers IFS, PROMPT_COMMAND, PS4, SHELLOPTS,
+    BASH_FUNC_*, the interpreter library and preload variables
+    (PYTHONPATH, PYTHONSTARTUP, NODE_PATH, NODE_OPTIONS, PERL5LIB,
+    PERL5OPT, RUBYLIB, RUBYOPT, CLASSPATH, LD_LIBRARY_PATH) and
+    GIT_WORK_TREE / GIT_INDEX_FILE. It and UnquotedExpansion look at
+    the text of their own command only, so a variable name that is
+    merely mentioned (echo ENV, grep IFS file) does not fire
+  - UnquotedExpansion recognises ${...} and $((...)), reports the
+    variable with its leading $, ignores quotes, comments, heredoc
+    bodies, [[ ]] and assignment values (DIR=$HOME/bin), and reports a
+    command nested in $(...) once, for itself
+  - MissingAbsolutePath reports relative paths such as foo/bar, allows
+    shell builtins and common package managers and build tools, and
+    skips words that are no command names
+  - PathTraversal matches any .. path segment
+  - Security::Rule->mask_source($source) is a new helper for rules that
+    match on the text of one command
+  - POD for every module, a LIMITATIONS section for the substitutions
+    the 0.20.5 grammar does not parse, and docs/SECURITY.md and
+    docs/RULES.md with the rule catalogue
 
 0.001     2026-04-24 02:54:50Z
 

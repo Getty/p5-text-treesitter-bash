@@ -62,7 +62,8 @@ cpanm Text::Treesitter::Bash
 
 The distribution vendors the tree-sitter grammar sources and compiles them
 on first use via `Text::Treesitter::Language::build`. Requires the
-`libtree-sitter` system library (Debian/Ubuntu: `apt-get install libtree-sitter-dev`).
+`libtree-sitter` system library (Debian/Ubuntu: `apt-get install libtree-sitter-dev`). The tree-sitter headers for the grammar build come from
+`Alien::Tree::Sitter`.
 
 ## Development
 
